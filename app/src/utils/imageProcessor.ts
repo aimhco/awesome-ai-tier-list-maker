@@ -92,22 +92,28 @@ export async function resizeImageToBase64(
             return
           }
 
-          // Calculate dimensions for center-cropped square
-          const sourceSize = Math.min(img.width, img.height)
-          const sourceX = (img.width - sourceSize) / 2
-          const sourceY = (img.height - sourceSize) / 2
+          // Calculate dimensions to fit entire image while maintaining aspect ratio
+          const scale = Math.min(targetSize / img.width, targetSize / img.height)
+          const scaledWidth = img.width * scale
+          const scaledHeight = img.height * scale
+          const offsetX = (targetSize - scaledWidth) / 2
+          const offsetY = (targetSize - scaledHeight) / 2
 
-          // Draw image (cropped to square, centered)
+          // Fill canvas with transparent/white background
+          ctx.fillStyle = 'white'
+          ctx.fillRect(0, 0, targetSize, targetSize)
+
+          // Draw image (scaled to fit, centered)
           ctx.drawImage(
             img,
-            sourceX,
-            sourceY,
-            sourceSize,
-            sourceSize,
             0,
             0,
-            targetSize,
-            targetSize,
+            img.width,
+            img.height,
+            offsetX,
+            offsetY,
+            scaledWidth,
+            scaledHeight,
           )
 
           // Export to data URL

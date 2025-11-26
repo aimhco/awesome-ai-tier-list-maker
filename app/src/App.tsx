@@ -448,7 +448,9 @@ function App() {
   }
 
   const handleFilesSelected = async (files: FileList) => {
-    const fileArray = Array.from(files).slice(0, 20) // Limit to 20
+    const existingCount = uploadingImages.length
+    const availableSlots = 20 - existingCount
+    const fileArray = Array.from(files).slice(0, availableSlots)
 
     const initialImages: UploadingImage[] = fileArray.map(file => ({
       id: generateItemId(),
@@ -461,7 +463,12 @@ function App() {
       loading: true,
     }))
 
-    setUploadingImages(prev => [...prev, ...initialImages])
+    // Only append if there are existing images, otherwise replace
+    if (existingCount > 0) {
+      setUploadingImages(prev => [...prev, ...initialImages])
+    } else {
+      setUploadingImages(initialImages)
+    }
 
     // Process each file sequentially
     for (const img of initialImages) {
@@ -525,9 +532,6 @@ function App() {
       id: img.id,
       label: img.label.trim().slice(0, 50) || img.file.name,
       image: img.preview,
-      color: img.color,
-      badge: img.badge ? img.badge.trim().slice(0, 5).toUpperCase() : undefined,
-      textColor: getContrastingTextColor(img.color),
     }))
 
     setCustomItems(prev => {
@@ -924,11 +928,13 @@ function App() {
   }
 
   const handleResetApplication = () => {
-    const nextPlacements = createDefaultPlacements(tierConfig, DEFAULT_ITEMS)
+    const defaultTiers = cloneTiers(DEFAULT_TIERS)
+    const nextPlacements = createDefaultPlacements(defaultTiers, DEFAULT_ITEMS)
+    setTierConfig(defaultTiers)
     setPlacements(nextPlacements)
     setDisabledItems([])
     setCustomItems([])
-    updateStorage(nextPlacements, tierConfig, [], [])
+    updateStorage(nextPlacements, defaultTiers, [], [])
   }
 
   const handleResetPlacements = () => {
@@ -1307,19 +1313,6 @@ function App() {
                           placeholder="Image name"
                           maxLength={50}
                         />
-                        <input
-                          type="text"
-                          value={img.badge}
-                          onChange={(e) => updateImageBadge(img.id, e.target.value)}
-                          placeholder="Badge"
-                          maxLength={5}
-                        />
-                        <input
-                          type="color"
-                          value={img.color}
-                          onChange={(e) => updateImageColor(img.id, e.target.value)}
-                          aria-label="Image color"
-                        />
                       </>
                     )}
                   </div>
@@ -1328,7 +1321,7 @@ function App() {
             )}
 
             <div className="settings-modal__actions">
-              <label htmlFor="image-upload-input" className="button">
+              <label htmlFor="image-upload-input" className="upload-images-modal__file-button">
                 {uploadingImages.length > 0 ? 'Add More Images' : 'Choose Images'}
               </label>
               {uploadingImages.length >= 20 && (
