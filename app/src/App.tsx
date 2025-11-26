@@ -330,11 +330,28 @@ const removeItemFromPlacements = (
 ): Placements => {
   const result: Placements = {}
   for (const [key, list] of Object.entries(current)) {
+    // Remove all instances of itemId (in case of duplicates)
     result[key as ContainerId] = list.filter((id) => id !== itemId)
   }
   if (!result.bank) {
     result.bank = []
   }
+  return result
+}
+
+// Remove duplicate IDs from placements
+const deduplicatePlacements = (placements: Placements): Placements => {
+  const result: Placements = {}
+  const seen = new Set<string>()
+
+  for (const [key, list] of Object.entries(placements)) {
+    result[key as ContainerId] = list.filter(id => {
+      if (seen.has(id)) return false
+      seen.add(id)
+      return true
+    })
+  }
+
   return result
 }
 
@@ -445,6 +462,7 @@ function App() {
   const closeUploadImagesModal = () => {
     setIsUploadImagesOpen(false)
     setUploadingImages([])
+    setIsProcessingUpload(false)
   }
 
   const handleFilesSelected = async (files: FileList) => {
@@ -521,6 +539,9 @@ function App() {
   }
 
   const handleSaveUploadedImages = () => {
+    // Prevent multiple clicks
+    if (isProcessingUpload) return
+
     const validImages = uploadingImages.filter(img => !img.error && img.preview)
 
     if (validImages.length === 0) {
@@ -528,19 +549,39 @@ function App() {
       return
     }
 
+    setIsProcessingUpload(true)
+
     const newItems = validImages.map(img => ({
       id: img.id,
       label: img.label.trim().slice(0, 50) || img.file.name,
       image: img.preview,
     }))
 
+    // Check for duplicates before adding
     setCustomItems(prev => {
-      const nextCustom = [...prev, ...newItems]
+      const existingIds = new Set(prev.map(item => item.id))
+      const uniqueNewItems = newItems.filter(item => !existingIds.has(item.id))
+
+      if (uniqueNewItems.length === 0) {
+        return prev // No new items to add
+      }
+
+      const nextCustom = [...prev, ...uniqueNewItems]
+
       setPlacements(prevPlacements => {
-        const nextPlacements: Placements = {
+        const existingBankIds = new Set(prevPlacements.bank)
+        const newItemIds = uniqueNewItems
+          .map(item => item.id)
+          .filter(id => !existingBankIds.has(id))
+
+        let nextPlacements: Placements = {
           ...prevPlacements,
-          bank: [...prevPlacements.bank, ...newItems.map(item => item.id)],
+          bank: [...prevPlacements.bank, ...newItemIds],
         }
+
+        // Deduplicate to ensure no duplicate IDs
+        nextPlacements = deduplicatePlacements(nextPlacements)
+
         updateStorage(nextPlacements, tierConfig, disabledItems, nextCustom)
         return nextPlacements
       })
@@ -572,6 +613,7 @@ function App() {
 
   const [isUploadImagesOpen, setIsUploadImagesOpen] = useState(false)
   const [uploadingImages, setUploadingImages] = useState<UploadingImage[]>([])
+  const [isProcessingUpload, setIsProcessingUpload] = useState(false)
 
   const openAddItemsModal = () => {
     setNewTextItems([{ id: generateItemId(), label: '', badge: '', color: '#8b5cf6' }])
@@ -731,29 +773,26 @@ function App() {
 
   const handleRemoveItem = (itemId: string) => {
     const isCustomItem = customItems.some((item) => item.id === itemId)
-    if (isCustomItem) {
-      setCustomItems((prev) => {
-        const nextCustom = prev.filter((item) => item.id !== itemId)
-        setPlacements((prevPlacements) => {
-          const cleaned = removeItemFromPlacements(prevPlacements, itemId)
-          updateStorage(cleaned, tierConfig, disabledItems, nextCustom)
-          return cleaned
-        })
-        return nextCustom
-      })
-      return
-    }
 
-    setDisabledItems((prev) => {
-      if (prev.includes(itemId)) return prev
-      const nextDisabled = [...prev, itemId]
-      setPlacements((prevPlacements) => {
-        const cleaned = removeItemFromPlacements(prevPlacements, itemId)
-        updateStorage(cleaned, tierConfig, nextDisabled, customItems)
-        return cleaned
-      })
-      return nextDisabled
-    })
+    if (isCustomItem) {
+      // Remove custom item
+      const nextCustom = customItems.filter((item) => item.id !== itemId)
+      const cleaned = removeItemFromPlacements(placements, itemId)
+
+      setCustomItems(nextCustom)
+      setPlacements(cleaned)
+      updateStorage(cleaned, tierConfig, disabledItems, nextCustom)
+    } else {
+      // Disable default item
+      if (disabledItems.includes(itemId)) return // Already disabled
+
+      const nextDisabled = [...disabledItems, itemId]
+      const cleaned = removeItemFromPlacements(placements, itemId)
+
+      setDisabledItems(nextDisabled)
+      setPlacements(cleaned)
+      updateStorage(cleaned, tierConfig, nextDisabled, customItems)
+    }
   }
 
   useEffect(() => {
@@ -1336,9 +1375,9 @@ function App() {
               <button
                 type="button"
                 onClick={handleSaveUploadedImages}
-                disabled={uploadingImages.filter(img => !img.error && img.preview).length === 0}
+                disabled={isProcessingUpload || uploadingImages.filter(img => !img.error && img.preview).length === 0}
               >
-                Upload ({uploadingImages.filter(img => !img.error && img.preview).length})
+                {isProcessingUpload ? 'Uploading...' : `Upload (${uploadingImages.filter(img => !img.error && img.preview).length})`}
               </button>
             </div>
           </div>
