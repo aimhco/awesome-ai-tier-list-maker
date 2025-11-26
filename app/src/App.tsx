@@ -21,6 +21,7 @@ import { Toolbar } from './components/Toolbar'
 import { ItemCard } from './components/ItemCard'
 import { items, tiers, type Item, type Tier, type TierId } from './data'
 import { toPng } from 'html-to-image'
+import { processImageFile } from './utils/imageProcessor'
 import './App.css'
 
 type ContainerId = TierId | 'bank'
@@ -34,6 +35,16 @@ type NewTextItem = {
   label: string
   badge: string
   color: string
+}
+type UploadingImage = {
+  id: string
+  file: File
+  preview: string
+  label: string
+  color: string
+  badge: string
+  error?: string
+  loading: boolean
 }
 
 const STORAGE_KEY = 'codex-tier-list-state'
@@ -428,7 +439,111 @@ function App() {
   }
 
   const handleUploadImages = () => {
-    // Placeholder handler for upcoming upload functionality
+    setIsUploadImagesOpen(true)
+  }
+
+  const closeUploadImagesModal = () => {
+    setIsUploadImagesOpen(false)
+    setUploadingImages([])
+  }
+
+  const handleFilesSelected = async (files: FileList) => {
+    const fileArray = Array.from(files).slice(0, 20) // Limit to 20
+
+    const initialImages: UploadingImage[] = fileArray.map(file => ({
+      id: generateItemId(),
+      file,
+      preview: '',
+      label: file.name.replace(/\.[^/.]+$/, ''),
+      color: '#8b5cf6',
+      badge: '',
+      error: undefined,
+      loading: true,
+    }))
+
+    setUploadingImages(prev => [...prev, ...initialImages])
+
+    // Process each file sequentially
+    for (const img of initialImages) {
+      try {
+        const base64 = await processImageFile(img.file)
+        setUploadingImages(prev =>
+          prev.map(item =>
+            item.id === img.id
+              ? { ...item, preview: base64, loading: false }
+              : item
+          )
+        )
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Failed to process image'
+        setUploadingImages(prev =>
+          prev.map(item =>
+            item.id === img.id
+              ? { ...item, error: errorMessage, loading: false }
+              : item
+          )
+        )
+      }
+    }
+  }
+
+  const updateImageLabel = (id: string, label: string) => {
+    setUploadingImages(prev =>
+      prev.map(img => (img.id === id ? { ...img, label } : img))
+    )
+  }
+
+  const updateImageBadge = (id: string, badge: string) => {
+    setUploadingImages(prev =>
+      prev.map(img =>
+        img.id === id
+          ? { ...img, badge: badge.toUpperCase().slice(0, 5) }
+          : img
+      )
+    )
+  }
+
+  const updateImageColor = (id: string, color: string) => {
+    setUploadingImages(prev =>
+      prev.map(img => (img.id === id ? { ...img, color } : img))
+    )
+  }
+
+  const removeUploadingImage = (id: string) => {
+    setUploadingImages(prev => prev.filter(img => img.id !== id))
+  }
+
+  const handleSaveUploadedImages = () => {
+    const validImages = uploadingImages.filter(img => !img.error && img.preview)
+
+    if (validImages.length === 0) {
+      closeUploadImagesModal()
+      return
+    }
+
+    const newItems = validImages.map(img => ({
+      id: img.id,
+      label: img.label.trim().slice(0, 50) || img.file.name,
+      image: img.preview,
+      color: img.color,
+      badge: img.badge ? img.badge.trim().slice(0, 5).toUpperCase() : undefined,
+      textColor: getContrastingTextColor(img.color),
+    }))
+
+    setCustomItems(prev => {
+      const nextCustom = [...prev, ...newItems]
+      setPlacements(prevPlacements => {
+        const nextPlacements: Placements = {
+          ...prevPlacements,
+          bank: [...prevPlacements.bank, ...newItems.map(item => item.id)],
+        }
+        updateStorage(nextPlacements, tierConfig, disabledItems, nextCustom)
+        return nextPlacements
+      })
+      return nextCustom
+    })
+
+    closeUploadImagesModal()
   }
 
   const handleOpenSettings = () => {
@@ -450,6 +565,9 @@ function App() {
 
   const [isAddItemsOpen, setIsAddItemsOpen] = useState(false)
   const [newTextItems, setNewTextItems] = useState<NewTextItem[]>([])
+
+  const [isUploadImagesOpen, setIsUploadImagesOpen] = useState(false)
+  const [uploadingImages, setUploadingImages] = useState<UploadingImage[]>([])
 
   const openAddItemsModal = () => {
     setNewTextItems([{ id: generateItemId(), label: '', badge: '', color: '#8b5cf6' }])
@@ -1126,6 +1244,108 @@ function App() {
               </button>
               <button type="button" onClick={handleSaveNewTextItems}>
                 Save
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {isUploadImagesOpen ? (
+        <div className="settings-modal__backdrop" data-hide-in-screenshot="true">
+          <div className="settings-modal">
+            <div className="settings-modal__title">
+              <h2>Upload Images</h2>
+              <button
+                type="button"
+                className="item-card__remove settings-modal__close"
+                onClick={closeUploadImagesModal}
+                aria-label="Close upload images"
+              >
+                ×
+              </button>
+            </div>
+
+            <input
+              type="file"
+              multiple
+              accept="image/jpeg,image/png,image/svg+xml,image/webp,image/tiff,image/gif,image/bmp,image/x-icon,image/avif,image/heic,image/heif"
+              onChange={(e) => e.target.files && handleFilesSelected(e.target.files)}
+              style={{ display: 'none' }}
+              id="image-upload-input"
+            />
+
+            {uploadingImages.length === 0 ? (
+              <div className="upload-images-modal__empty">
+                <p>No images selected. Click the button below to choose images.</p>
+              </div>
+            ) : (
+              <div className="upload-images-modal__rows">
+                {uploadingImages.map((img) => (
+                  <div key={img.id} className="upload-image-preview">
+                    {img.loading ? (
+                      <div className="upload-image-preview__loading">Processing...</div>
+                    ) : img.error ? (
+                      <div className="upload-image-preview__error">{img.error}</div>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          className="upload-image-preview__remove"
+                          onClick={() => removeUploadingImage(img.id)}
+                          aria-label={`Remove ${img.label}`}
+                        >
+                          ×
+                        </button>
+                        <img
+                          src={img.preview}
+                          alt={img.label}
+                          className="upload-image-preview__thumbnail"
+                        />
+                        <input
+                          type="text"
+                          value={img.label}
+                          onChange={(e) => updateImageLabel(img.id, e.target.value)}
+                          placeholder="Image name"
+                          maxLength={50}
+                        />
+                        <input
+                          type="text"
+                          value={img.badge}
+                          onChange={(e) => updateImageBadge(img.id, e.target.value)}
+                          placeholder="Badge"
+                          maxLength={5}
+                        />
+                        <input
+                          type="color"
+                          value={img.color}
+                          onChange={(e) => updateImageColor(img.id, e.target.value)}
+                          aria-label="Image color"
+                        />
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="settings-modal__actions">
+              <label htmlFor="image-upload-input" className="button">
+                {uploadingImages.length > 0 ? 'Add More Images' : 'Choose Images'}
+              </label>
+              {uploadingImages.length >= 20 && (
+                <span className="upload-limit-warning">Maximum 20 images per upload</span>
+              )}
+            </div>
+
+            <div className="settings-modal__footer">
+              <button type="button" onClick={closeUploadImagesModal}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveUploadedImages}
+                disabled={uploadingImages.filter(img => !img.error && img.preview).length === 0}
+              >
+                Upload ({uploadingImages.filter(img => !img.error && img.preview).length})
               </button>
             </div>
           </div>
