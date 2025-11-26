@@ -1,0 +1,40 @@
+.item-bank-wrapper {
+  background-color: #2a2a2a;
+  border: 2px solid #646cff;
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.item-bank-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.item-bank-header h2 {
+  margin: 0;
+}
+
+.item-bank-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.item-bank {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  min-height: 120px;
+  padding: 1rem;
+  background-color: #1a1a1a;
+  border-radius: 8px;
+  transition: background-color 0.2s;
+}
+
+.item-bank-over {
+  background-color: rgba(100, 108, 255, 0.1);
+}

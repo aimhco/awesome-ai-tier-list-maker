@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tier List App</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="app">
+        <header>
+            <h1 id="appTitle" contenteditable="true" spellcheck="false">Tier List Maker</h1>
+            <div class="toolbar">
+                <button id="uploadBtn" class="btn btn-primary">📤 Upload Image</button>
+                <button id="screenshotBtn" class="btn btn-secondary">📸 Screenshot</button>
+                <button id="resetBtn" class="btn btn-danger">🔄 Reset</button>
+                <button id="importBtn" class="btn btn-success">📥 Import JSON</button>
+                <button id="exportBtn" class="btn btn-success">📤 Export JSON</button>
+                <button id="invertColorsBtn" class="btn btn-info">🎨 Invert Colors</button>
+                <button id="addTierBtn" class="btn btn-primary">➕ Add Tier</button>
+                <input type="file" id="imageUpload" accept="image/*" style="display: none;">
+                <input type="file" id="jsonImport" accept=".json" style="display: none;">
+            </div>
+        </header>
+
+        <main>
+            <div id="tierContainer" class="tier-container"></div>
+
+            <div class="item-bank-container">
+                <h2>Item Bank</h2>
+                <div id="itemBank" class="item-bank" data-tier="bank"></div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modal for tier settings -->
+    <div id="tierModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <span class="modal-close">&times;</span>
+            <h2>Tier Settings</h2>
+            <div class="modal-body">
+                <label>
+                    Tier Name:
+                    <input type="text" id="modalTierName" class="modal-input">
+                </label>
+                <label>
+                    Tier Color:
+                    <input type="color" id="modalTierColor" class="modal-input">
+                </label>
+                <button id="modalDeleteTier" class="btn btn-danger">🗑️ Delete Tier</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

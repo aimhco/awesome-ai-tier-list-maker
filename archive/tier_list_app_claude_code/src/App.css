@@ -1,0 +1,130 @@
+.app {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.header {
+  margin-bottom: 2rem;
+}
+
+.title-container {
+  display: inline-block;
+  cursor: pointer;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  transition: background-color 0.2s;
+}
+
+.title-container:hover {
+  background-color: rgba(100, 108, 255, 0.1);
+}
+
+.title-input {
+  font-size: 2rem;
+  font-weight: bold;
+  text-align: center;
+  width: 400px;
+  max-width: 90vw;
+}
+
+.toolbar {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin: 1.5rem 0;
+}
+
+.toolbar button {
+  background-color: #2a2a2a;
+  border: 1px solid #646cff;
+  color: white;
+}
+
+.toolbar button:hover {
+  background-color: #363636;
+}
+
+.tier-list {
+  margin-bottom: 2rem;
+  border: 2px solid #646cff;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.item-bank-container {
+  margin-bottom: 2rem;
+}
+
+.saved-lists {
+  margin-top: 3rem;
+  padding-top: 2rem;
+  border-top: 2px solid #646cff;
+}
+
+.saved-lists h2 {
+  margin-bottom: 1.5rem;
+}
+
+.saved-lists-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1.5rem;
+  margin-top: 1rem;
+}
+
+.saved-list-card {
+  background-color: #2a2a2a;
+  border: 1px solid #646cff;
+  border-radius: 8px;
+  padding: 1rem;
+  cursor: pointer;
+  transition: transform 0.2s, border-color 0.2s;
+}
+
+.saved-list-card:hover {
+  transform: translateY(-4px);
+  border-color: #8b93ff;
+}
+
+.saved-list-card h3 {
+  margin: 0 0 0.5rem 0;
+  font-size: 1.2rem;
+}
+
+.saved-list-card .timestamp {
+  font-size: 0.85rem;
+  color: #999;
+  margin-bottom: 1rem;
+}
+
+.saved-list-card .actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+}
+
+.saved-list-card button {
+  font-size: 0.9rem;
+  padding: 0.4em 0.8em;
+}
+
+.upload-label {
+  display: inline-block;
+  padding: 0.6em 1.2em;
+  background-color: #2a2a2a;
+  border: 1px solid #646cff;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.2s, border-color 0.25s;
+}
+
+.upload-label:hover {
+  background-color: #363636;
+  border-color: #646cff;
+}
+
+input[type="file"] {
+  display: none;
+}
