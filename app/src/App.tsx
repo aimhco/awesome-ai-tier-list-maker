@@ -1,0 +1,1138 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { ChangeEvent } from 'react'
+import {
+  DndContext,
+  MouseSensor,
+  TouchSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+  DragOverlay,
+} from '@dnd-kit/core'
+import type {
+  DragEndEvent,
+  DragStartEvent,
+  UniqueIdentifier,
+} from '@dnd-kit/core'
+import { arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable'
+import { ItemBank } from './components/ItemBank'
+import { TierRow } from './components/TierRow'
+import { Toolbar } from './components/Toolbar'
+import { ItemCard } from './components/ItemCard'
+import { items, tiers, type Item, type Tier, type TierId } from './data'
+import { toPng } from 'html-to-image'
+import './App.css'
+
+type ContainerId = TierId | 'bank'
+
+type Placements = Record<ContainerId, string[]>
+type ThemeMode = 'dark' | 'light'
+type TierConfig = Tier
+type CustomItem = Item
+type NewTextItem = {
+  id: string
+  label: string
+  badge: string
+  color: string
+}
+
+const STORAGE_KEY = 'codex-tier-list-state'
+const DEFAULT_TIERS: TierConfig[] = tiers.map((tier) => ({ ...tier }))
+const DEFAULT_ITEMS: Item[] = items.map((item) => ({ ...item }))
+let tierIdCounter = 0
+let customItemCounter = 0
+const TIER_COLOR_PALETTE = [
+  '#8b5cf6',
+  '#7c3aed',
+  '#6d28d9',
+  '#5b21b6',
+  '#4c1d95',
+  '#a855f7',
+  '#c084fc',
+  '#d946ef',
+  '#f472b6',
+  '#fb7185',
+  '#f97316',
+  '#ea580c',
+  '#d97706',
+  '#c2410c',
+  '#a16207',
+  '#92400e',
+  '#7c2d12',
+  '#6c2d11',
+  '#5a2910',
+  '#4a2510',
+]
+
+const invertedTierColors: Record<string, { color: string; textColor: string }> =
+  {
+    s: { color: '#f44336', textColor: '#330504' },
+    a: { color: '#ff9f43', textColor: '#421500' },
+    b: { color: '#ffd166', textColor: '#3a2700' },
+    c: { color: '#c0d860', textColor: '#303800' },
+    d: { color: '#7bc74d', textColor: '#163900' },
+    f: { color: '#4caf50', textColor: '#08260f' },
+  }
+
+const cloneTiers = (tierList: TierConfig[]) =>
+  tierList.map((tier) => ({ ...tier }))
+
+const generateTierId = () => {
+  tierIdCounter += 1
+  return `tier-${Date.now()}-${tierIdCounter}`
+}
+
+const generateItemId = () => {
+  customItemCounter += 1
+  return `custom-${Date.now()}-${customItemCounter}`
+}
+
+const createDefaultPlacements = (
+  tierList: TierConfig[],
+  itemList: Item[] = DEFAULT_ITEMS,
+): Placements => {
+  const initial: Placements = { bank: itemList.map((item) => item.id) }
+  for (const tier of tierList) {
+    initial[tier.id] = []
+  }
+  return initial
+}
+
+const getContrastingTextColor = (hex: string) => {
+  let normalized = hex.replace('#', '')
+  if (normalized.length === 3) {
+    normalized = normalized
+      .split('')
+      .map((char) => char + char)
+      .join('')
+  }
+  const r = parseInt(normalized.slice(0, 2), 16) || 0
+  const g = parseInt(normalized.slice(2, 4), 16) || 0
+  const b = parseInt(normalized.slice(4, 6), 16) || 0
+  const luminance = 0.299 * r + 0.587 * g + 0.114 * b
+  return luminance > 186 ? '#1a1a1a' : '#f5f5f5'
+}
+
+const normalizeTierConfig = (raw: unknown): TierConfig[] | null => {
+  if (!Array.isArray(raw)) return null
+  const sanitized = raw
+    .map((entry) => {
+      if (typeof entry !== 'object' || entry === null) return null
+      const { id, label, color, textColor } = entry as Record<string, unknown>
+      if (typeof id !== 'string' || !id.trim()) return null
+      const safeColor = typeof color === 'string' && color ? color : '#4caf50'
+      return {
+        id,
+        label:
+          typeof label === 'string' && label.trim()
+            ? label.slice(0, 24)
+            : id.toUpperCase(),
+        color: safeColor,
+        textColor:
+          typeof textColor === 'string' && textColor
+            ? textColor
+            : getContrastingTextColor(safeColor),
+      }
+    })
+    .filter(Boolean) as TierConfig[]
+  return sanitized.length ? sanitized : null
+}
+
+const normalizeCustomItems = (raw: unknown): CustomItem[] => {
+  if (!Array.isArray(raw)) return []
+  return raw
+    .map((entry) => {
+      if (typeof entry !== 'object' || entry === null) return null
+      const { id, label, color, badge } = entry as Record<string, unknown>
+      if (typeof id !== 'string' || !id.trim()) return null
+      if (typeof label !== 'string' || !label.trim()) return null
+      const safeColor = typeof color === 'string' && color ? color : '#8b5cf6'
+      return {
+        id,
+        label: label.slice(0, 50),
+        color: safeColor,
+        badge:
+          typeof badge === 'string' && badge.trim()
+            ? badge.slice(0, 5).toUpperCase()
+            : undefined,
+        textColor: getContrastingTextColor(safeColor),
+      }
+    })
+    .filter(Boolean) as CustomItem[]
+}
+
+const normalizePlacements = (
+  raw: unknown,
+  tierList: TierConfig[],
+  itemList: Item[],
+): Placements => {
+  const initial = createDefaultPlacements(tierList, itemList)
+  if (typeof raw !== 'object' || raw === null) {
+    return initial
+  }
+
+  const data = raw as Record<string, unknown>
+  const seen = new Set<string>()
+  const validIds = new Set(itemList.map((item) => item.id))
+  const containerOrder: ContainerId[] = ['bank', ...tierList.map((tier) => tier.id)]
+
+  for (const container of containerOrder) {
+    const stored = data[container]
+    if (!Array.isArray(stored)) continue
+
+    initial[container] = stored.filter((entry): entry is string => {
+      if (typeof entry !== 'string') return false
+      if (!validIds.has(entry)) return false
+      if (seen.has(entry)) return false
+      seen.add(entry)
+      return true
+    })
+  }
+
+  for (const item of itemList) {
+    if (!seen.has(item.id)) {
+      initial.bank.push(item.id)
+    }
+  }
+
+  return initial
+}
+
+const loadInitialState = () => {
+  const fallbackTiers = cloneTiers(DEFAULT_TIERS)
+  const fallbackPlacements = createDefaultPlacements(fallbackTiers)
+  const fallbackDisabled: string[] = []
+  const fallbackCustom: CustomItem[] = []
+
+  if (!isBrowser()) {
+    return {
+      tiers: fallbackTiers,
+      placements: fallbackPlacements,
+      disabledItems: fallbackDisabled,
+      customItems: fallbackCustom,
+    }
+  }
+
+  const stored = window.localStorage.getItem(STORAGE_KEY)
+  if (!stored) {
+    return {
+      tiers: fallbackTiers,
+      placements: fallbackPlacements,
+      disabledItems: fallbackDisabled,
+      customItems: fallbackCustom,
+    }
+  }
+
+  try {
+    const parsed = JSON.parse(stored) as {
+      tiers?: unknown
+      placements?: unknown
+      disabledItems?: unknown
+      customItems?: unknown
+    }
+    const storedTiers = normalizeTierConfig(parsed.tiers) ?? fallbackTiers
+    const disabledItems =
+      Array.isArray(parsed.disabledItems)
+        ? parsed.disabledItems.filter((entry): entry is string => typeof entry === 'string')
+        : []
+    const storedCustom = normalizeCustomItems(parsed.customItems)
+    const availableItems = [...DEFAULT_ITEMS, ...storedCustom].filter(
+      (item) => !disabledItems.includes(item.id),
+    )
+    const storedPlacements = normalizePlacements(
+      parsed.placements,
+      storedTiers,
+      availableItems,
+    )
+    return {
+      tiers: storedTiers,
+      placements: storedPlacements,
+      disabledItems,
+      customItems: storedCustom,
+    }
+  } catch {
+    return {
+      tiers: fallbackTiers,
+      placements: fallbackPlacements,
+      disabledItems: fallbackDisabled,
+      customItems: fallbackCustom,
+    }
+  }
+}
+
+const isBrowser = () => typeof window !== 'undefined'
+
+const reconcilePlacements = (
+  prevPlacements: Placements,
+  previousTiers: TierConfig[],
+  nextTiers: TierConfig[],
+  itemList: Item[],
+): Placements => {
+  const next: Placements = { bank: [] }
+  const nextIds = new Set(nextTiers.map((tier) => tier.id))
+  const validItems = new Set(itemList.map((item) => item.id))
+  const seen = new Set<string>()
+
+  for (const tier of nextTiers) {
+    const existing = prevPlacements[tier.id] ?? []
+    next[tier.id] = existing.filter((itemId) => {
+      if (!validItems.has(itemId) || seen.has(itemId)) return false
+      seen.add(itemId)
+      return true
+    })
+  }
+
+  const removedItems: string[] = []
+  for (const tier of previousTiers) {
+    if (!nextIds.has(tier.id)) {
+      removedItems.push(...(prevPlacements[tier.id] ?? []))
+    }
+  }
+
+  const nextBank = [
+    ...(prevPlacements.bank ?? []).filter((itemId) => {
+      if (!validItems.has(itemId) || seen.has(itemId)) return false
+      seen.add(itemId)
+      return true
+    }),
+    ...removedItems.filter((itemId) => {
+      if (!validItems.has(itemId) || seen.has(itemId)) return false
+      seen.add(itemId)
+      return true
+    }),
+  ]
+
+  for (const item of itemList) {
+    if (!seen.has(item.id)) {
+      nextBank.push(item.id)
+      seen.add(item.id)
+    }
+  }
+
+  next.bank = nextBank
+  return next
+}
+
+const removeItemFromPlacements = (
+  current: Placements,
+  itemId: string,
+): Placements => {
+  const result: Placements = {}
+  for (const [key, list] of Object.entries(current)) {
+    result[key as ContainerId] = list.filter((id) => id !== itemId)
+  }
+  if (!result.bank) {
+    result.bank = []
+  }
+  return result
+}
+
+function App() {
+  const initialState = useMemo(() => loadInitialState(), [])
+  const [tierConfig, setTierConfig] = useState(() => initialState.tiers)
+  const [placements, setPlacements] = useState<Placements>(
+    () => initialState.placements,
+  )
+  const [customItems, setCustomItems] = useState<CustomItem[]>(
+    () => initialState.customItems ?? [],
+  )
+  const [disabledItems, setDisabledItems] = useState<string[]>(
+    () => initialState.disabledItems ?? [],
+  )
+  const baseItems = useMemo(() => DEFAULT_ITEMS, [])
+  const activeItems = useMemo(
+    () =>
+      [...baseItems, ...customItems].filter(
+        (item) => !disabledItems.includes(item.id),
+      ),
+    [baseItems, customItems, disabledItems],
+  )
+  const itemsById = useMemo(() => {
+    return activeItems.reduce<Record<string, Item>>((acc, item) => {
+      acc[item.id] = item
+      return acc
+    }, {})
+  }, [activeItems])
+
+  const [activeId, setActiveId] = useState<string | null>(null)
+  const [title, setTitle] = useState('Tier List')
+  const [colorsInverted, setColorsInverted] = useState(false)
+  const [presentationMode, setPresentationMode] = useState(false)
+  const [themeMode, setThemeMode] = useState<ThemeMode>('dark')
+  const [hideTitles, setHideTitles] = useState(false)
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [editorTiers, setEditorTiers] = useState<TierConfig[]>([])
+
+  const appRef = useRef<HTMLDivElement>(null)
+
+  const themedTiers = useMemo(() => {
+    if (!colorsInverted) return tierConfig
+    return tierConfig.map((tier) => ({
+      ...tier,
+      ...(invertedTierColors[tier.id] ?? {}),
+    }))
+  }, [colorsInverted, tierConfig])
+
+  const maxLabelLength = useMemo(() => {
+    return tierConfig.reduce((max, tier) => Math.max(max, tier.label.length), 1)
+  }, [tierConfig])
+
+  const labelWidth = useMemo(() => {
+    const base = maxLabelLength * 16
+    return Math.min(240, Math.max(90, base))
+  }, [maxLabelLength])
+
+  const containerOrder = useMemo<ContainerId[]>(
+    () => ['bank', ...tierConfig.map((tier) => tier.id)],
+    [tierConfig],
+  )
+
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 8 } }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
+  )
+
+  const findContainer = (id: UniqueIdentifier): ContainerId | undefined => {
+    if (containerOrder.includes(id as ContainerId)) {
+      return id as ContainerId
+    }
+
+    return containerOrder.find((container) =>
+      placements[container].includes(id as string),
+    )
+  }
+
+  const handleInvertColors = () => {
+    setColorsInverted((prev) => !prev)
+  }
+
+  const handleTitleChange = (event: ChangeEvent<HTMLInputElement>) => {
+    setTitle(event.target.value)
+  }
+
+  const handleTitleBlur = () => {
+    if (!title.trim()) {
+      setTitle('Tier List')
+    }
+  }
+
+  const togglePresentationMode = () => {
+    setPresentationMode((prev) => !prev)
+  }
+
+  const handleThemeChange = (mode: ThemeMode) => {
+    setThemeMode(mode)
+  }
+
+  const handleUploadImages = () => {
+    // Placeholder handler for upcoming upload functionality
+  }
+
+  const handleOpenSettings = () => {
+    setEditorTiers(cloneTiers(tierConfig))
+    setIsSettingsOpen(true)
+  }
+
+  const handleCloseSettings = () => {
+    setIsSettingsOpen(false)
+  }
+
+  const handleToggleHideTitles = () => {
+    setHideTitles((prev) => !prev)
+  }
+
+  const handleSaveList = () => {
+    // Placeholder handler for upcoming save functionality
+  }
+
+  const [isAddItemsOpen, setIsAddItemsOpen] = useState(false)
+  const [newTextItems, setNewTextItems] = useState<NewTextItem[]>([])
+
+  const openAddItemsModal = () => {
+    setNewTextItems([{ id: generateItemId(), label: '', badge: '', color: '#8b5cf6' }])
+    setIsAddItemsOpen(true)
+  }
+
+  const closeAddItemsModal = () => {
+    setIsAddItemsOpen(false)
+    setNewTextItems([])
+  }
+
+  const handleAddTextItem = () => {
+    openAddItemsModal()
+  }
+
+  const handleAddTextItemRow = () => {
+    setNewTextItems((prev) => [
+      ...prev,
+      { id: generateItemId(), label: '', badge: '', color: '#8b5cf6' },
+    ])
+  }
+
+  const handleRemoveTextRow = (rowId: string) => {
+    setNewTextItems((prev) => prev.filter((row) => row.id !== rowId))
+  }
+
+  const handleTextItemChange = (
+    rowId: string,
+    field: keyof NewTextItem,
+    value: string,
+  ) => {
+    setNewTextItems((prev) =>
+      prev.map((row) =>
+        row.id === rowId
+          ? {
+              ...row,
+              [field]:
+                field === 'badge'
+                  ? value.toUpperCase().slice(0, 5)
+                  : field === 'label'
+                    ? value
+                    : value,
+            }
+          : row,
+      ),
+    )
+  }
+
+  const handleSaveNewTextItems = () => {
+    const entries = newTextItems
+      .map((row) => ({
+        id: generateItemId(),
+        label: row.label.trim().slice(0, 50),
+        badge: row.badge.trim() ? row.badge.trim().slice(0, 5).toUpperCase() : undefined,
+        color: row.color || '#8b5cf6',
+        textColor: getContrastingTextColor(row.color || '#8b5cf6'),
+      }))
+      .filter((row) => row.label.length > 0)
+
+    if (!entries.length) {
+      closeAddItemsModal()
+      return
+    }
+
+    setCustomItems((prev) => {
+      const nextCustom = [...prev, ...entries]
+      const newIds = new Set(entries.map((entry) => entry.id))
+      setPlacements((prevPlacements) => {
+        const filteredBank = prevPlacements.bank.filter((id) => !newIds.has(id))
+        const nextPlacements: Placements = {
+          ...prevPlacements,
+          bank: [...filteredBank, ...entries.map((entry) => entry.id)],
+        }
+        updateStorage(nextPlacements, tierConfig, disabledItems, nextCustom)
+        return nextPlacements
+      })
+      return nextCustom
+    })
+
+    closeAddItemsModal()
+  }
+
+  const handleEditTierLabel = (id: TierId, value: string) => {
+    setEditorTiers((prev) =>
+      prev.map((tier) =>
+        tier.id === id
+          ? { ...tier, label: value.slice(0, 14) || tier.label }
+          : tier,
+      ),
+    )
+  }
+
+  const handleEditTierColor = (id: TierId, value: string) => {
+    setEditorTiers((prev) =>
+      prev.map((tier) =>
+        tier.id === id
+          ? { ...tier, color: value, textColor: getContrastingTextColor(value) }
+          : tier,
+      ),
+    )
+  }
+
+  const handleMoveTier = (index: number, direction: number) => {
+    setEditorTiers((prev) => {
+      const target = index + direction
+      if (target < 0 || target >= prev.length) return prev
+      return arrayMove(prev, index, target)
+    })
+  }
+
+  const handleDeleteTier = (id: TierId) => {
+    setEditorTiers((prev) => {
+      if (prev.length <= 1) return prev
+      return prev.filter((tier) => tier.id !== id)
+    })
+  }
+
+  const handleResetEditor = () => {
+    setEditorTiers(cloneTiers(DEFAULT_TIERS))
+  }
+
+  const handleAddTierRow = () => {
+    setEditorTiers((prev) => {
+      if (prev.length >= 20) return prev
+      const index = prev.length % TIER_COLOR_PALETTE.length
+      const color = TIER_COLOR_PALETTE[index]
+      return [
+        ...prev,
+        {
+          id: generateTierId(),
+          label: `Tier ${prev.length + 1}`,
+          color,
+          textColor: getContrastingTextColor(color),
+        },
+      ]
+    })
+  }
+
+  const handleApplySettings = () => {
+    if (!editorTiers.length) return
+    const sanitized = editorTiers.map((tier) => ({
+      ...tier,
+      label: tier.label.trim() || 'Tier',
+      textColor: tier.textColor || getContrastingTextColor(tier.color),
+    }))
+    const nextPlacements = reconcilePlacements(
+      placements,
+      tierConfig,
+      sanitized,
+      activeItems,
+    )
+    setTierConfig(sanitized)
+    setPlacements(nextPlacements)
+    updateStorage(nextPlacements, sanitized, disabledItems, customItems)
+    setIsSettingsOpen(false)
+  }
+
+  const handleRemoveItem = (itemId: string) => {
+    const isCustomItem = customItems.some((item) => item.id === itemId)
+    if (isCustomItem) {
+      setCustomItems((prev) => {
+        const nextCustom = prev.filter((item) => item.id !== itemId)
+        setPlacements((prevPlacements) => {
+          const cleaned = removeItemFromPlacements(prevPlacements, itemId)
+          updateStorage(cleaned, tierConfig, disabledItems, nextCustom)
+          return cleaned
+        })
+        return nextCustom
+      })
+      return
+    }
+
+    setDisabledItems((prev) => {
+      if (prev.includes(itemId)) return prev
+      const nextDisabled = [...prev, itemId]
+      setPlacements((prevPlacements) => {
+        const cleaned = removeItemFromPlacements(prevPlacements, itemId)
+        updateStorage(cleaned, tierConfig, nextDisabled, customItems)
+        return cleaned
+      })
+      return nextDisabled
+    })
+  }
+
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      document.body.dataset.theme = themeMode
+    }
+  }, [themeMode])
+
+  const handleScreenshot = async () => {
+    if (!isBrowser() || !appRef.current) return
+    const frame = appRef.current.cloneNode(true) as HTMLElement
+    const background = themeMode === 'light' ? '#f5f2eb' : '#121212'
+    frame.style.background = background
+    frame.style.padding = '2rem'
+    frame.style.minHeight = '100vh'
+    frame.style.gap = '0.75rem'
+
+    frame
+      .querySelectorAll('[data-hide-in-screenshot="true"]')
+      .forEach((node) => node.remove())
+
+    frame.querySelectorAll('[data-hide-in-screenshot="frame"]').forEach((node) => {
+      const element = node as HTMLElement
+      element.style.margin = '0 auto'
+      element.style.maxWidth = '1100px'
+      element.style.width = '100%'
+    })
+
+    if (placements.bank.length === 0) {
+      frame.querySelector('[data-item-bank="wrapper"]')?.remove()
+    } else {
+      frame.querySelector('[data-item-bank="subtitle"]')?.remove()
+    }
+
+    const header = frame.querySelector('.app__header') as HTMLElement | null
+    if (header) {
+      header.style.gap = '0.25rem'
+      header.style.marginBottom = '0.35rem'
+    }
+
+    const staging = document.createElement('div')
+    staging.style.position = 'fixed'
+    staging.style.left = '-99999px'
+    staging.style.top = '0'
+    staging.style.opacity = '0'
+    staging.style.pointerEvents = 'none'
+    staging.appendChild(frame)
+    document.body.appendChild(staging)
+
+    try {
+      const dataUrl = await toPng(frame, {
+        cacheBust: true,
+        backgroundColor: background,
+        width: 1100,
+      })
+
+      const link = document.createElement('a')
+      const safeTitle = title.trim() ? title.trim().replace(/\s+/g, '-') : 'tier-list'
+      link.download = `${safeTitle.toLowerCase()}-${Date.now()}.png`
+      link.href = dataUrl
+      link.click()
+    } catch (error) {
+      console.error(error)
+      window.alert('Unable to capture screenshot.')
+    } finally {
+      staging.remove()
+    }
+  }
+
+  const updateStorage = (
+    nextPlacements: Placements = placements,
+    nextTiers: TierConfig[] = tierConfig,
+    nextDisabled: string[] = disabledItems,
+    nextCustom: CustomItem[] = customItems,
+  ) => {
+    if (isBrowser()) {
+      window.localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({
+          placements: nextPlacements,
+          tiers: nextTiers,
+          disabledItems: nextDisabled,
+          customItems: nextCustom,
+        }),
+      )
+    }
+  }
+
+  const moveItem = (
+    from: ContainerId,
+    to: ContainerId,
+    itemId: string,
+    overId?: UniqueIdentifier,
+  ) => {
+    setPlacements((prev) => {
+      const next: Placements = {
+        ...prev,
+        [from]: [...prev[from]],
+        [to]: [...prev[to]],
+      }
+
+      const fromIndex = next[from].indexOf(itemId)
+      if (fromIndex >= 0) {
+        next[from].splice(fromIndex, 1)
+      }
+
+      let insertIndex = next[to].length
+      if (overId && overId !== to) {
+        const idx = next[to].indexOf(overId as string)
+        if (idx >= 0) insertIndex = idx
+      }
+
+      next[to].splice(insertIndex, 0, itemId)
+      updateStorage(next)
+      return next
+    })
+  }
+
+  const reorderItem = (
+    container: ContainerId,
+    active: string,
+    over?: string,
+  ) => {
+    setPlacements((prev) => {
+      const containerItems = prev[container]
+      const fromIndex = containerItems.indexOf(active)
+      let toIndex = typeof over === 'string'
+        ? containerItems.indexOf(over)
+        : containerItems.length - 1
+      if (toIndex === -1) {
+        toIndex = containerItems.length - 1
+      }
+
+      if (fromIndex === toIndex) return prev
+
+      const next = {
+        ...prev,
+        [container]: arrayMove(containerItems, fromIndex, toIndex),
+      }
+      updateStorage(next)
+      return next
+    })
+  }
+
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveId(event.active.id as string)
+  }
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event
+    setActiveId(null)
+    if (!over) return
+
+    const activeContainer = findContainer(active.id)
+    const overContainer = findContainer(over.id)
+
+    if (!activeContainer || !overContainer) return
+
+    if (activeContainer === overContainer) {
+      const overId =
+        over.id === overContainer ? undefined : (over.id as string)
+      reorderItem(activeContainer, active.id as string, overId)
+      return
+    }
+
+    moveItem(
+      activeContainer,
+      overContainer,
+      active.id as string,
+      over.id,
+    )
+  }
+
+  const handleResetApplication = () => {
+    const nextPlacements = createDefaultPlacements(tierConfig, DEFAULT_ITEMS)
+    setPlacements(nextPlacements)
+    setDisabledItems([])
+    setCustomItems([])
+    updateStorage(nextPlacements, tierConfig, [], [])
+  }
+
+  const handleResetPlacements = () => {
+    setPlacements((prev) => {
+      const next: Placements = {
+        bank: activeItems.map((item) => item.id),
+      }
+      for (const key of Object.keys(prev)) {
+        if (key === 'bank') continue
+        next[key as ContainerId] = []
+      }
+      updateStorage(next)
+      return next
+    })
+  }
+
+  const handleExport = () => {
+    if (!isBrowser()) return
+    const payload = containerOrder.reduce<Record<string, string[]>>(
+      (acc, container) => {
+        acc[container] = placements[container]
+        return acc
+      },
+      {},
+    )
+
+    const output = JSON.stringify(payload, null, 2)
+    navigator.clipboard
+      .writeText(output)
+      .then(() => window.alert('Tier assignments copied to clipboard.'))
+      .catch(() => window.alert(output))
+  }
+
+  return (
+    <div
+      ref={appRef}
+      className={`app app--${themeMode}${presentationMode ? ' app--presentation' : ''}`}
+      data-hide-in-screenshot="frame"
+    >
+      <div className="app__header" data-hide-in-screenshot="frame">
+        <div className="app__control-row" data-hide-in-screenshot="true">
+          <button
+            type="button"
+            className={`icon-button icon-button--play${presentationMode ? ' is-active' : ''}`}
+            onClick={togglePresentationMode}
+            aria-pressed={presentationMode}
+            aria-label={presentationMode ? 'Exit presentation mode' : 'Enter presentation mode'}
+          >
+            {presentationMode ? '✕' : '▶'}
+          </button>
+          <button
+            type="button"
+            className="icon-button icon-button--settings"
+            aria-label="Settings menu"
+            disabled
+          >
+            ⚙
+          </button>
+          <button
+            type="button"
+            className={`theme-toggle${themeMode === 'light' ? ' is-light' : ' is-dark'}`}
+            onClick={() =>
+              handleThemeChange(themeMode === 'light' ? 'dark' : 'light')
+            }
+            aria-label={`Switch to ${themeMode === 'light' ? 'dark' : 'light'} mode`}
+          >
+            <span className="theme-toggle__icon" aria-hidden="true">
+              ☀
+            </span>
+            <span className="theme-toggle__icon theme-toggle__icon--moon" aria-hidden="true">
+              ☾
+            </span>
+            <span className="theme-toggle__thumb" aria-hidden="true" />
+          </button>
+        </div>
+        <h1 className="app__title">
+          <input
+            className="app__title-input"
+            type="text"
+            spellCheck={false}
+            value={title}
+            onChange={handleTitleChange}
+            onBlur={handleTitleBlur}
+            aria-label="Tier list title"
+          />
+        </h1>
+        {!presentationMode && (
+          <div className="app__toolbar-row" data-hide-in-screenshot="true">
+            <Toolbar
+              onAddTextItem={handleAddTextItem}
+              onUploadImages={handleUploadImages}
+              onToggleHideTitles={handleToggleHideTitles}
+              onResetPlacements={handleResetPlacements}
+              onReset={handleResetApplication}
+              onOpenSettings={handleOpenSettings}
+              onScreenshot={handleScreenshot}
+              onExport={handleExport}
+              onSaveList={handleSaveList}
+              hideTitles={hideTitles}
+              colorsInverted={colorsInverted}
+            />
+          </div>
+        )}
+      </div>
+      <DndContext
+        sensors={sensors}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+      >
+        <ItemBank
+          itemIds={placements.bank}
+          itemsById={itemsById}
+          showLabels={!hideTitles}
+          onRemoveItem={handleRemoveItem}
+        />
+        <div className="tier-list">
+          {themedTiers.map((tier) => (
+            <TierRow
+              key={tier.id}
+              tier={tier}
+              itemIds={placements[tier.id] ?? []}
+              itemsById={itemsById}
+              showLabels={!hideTitles}
+              labelWidth={labelWidth}
+              onRemoveItem={handleRemoveItem}
+            />
+          ))}
+        </div>
+        <DragOverlay>
+          {activeId ? (
+            <ItemCard
+              item={itemsById[activeId]}
+              hideRemove
+              showLabel={!hideTitles}
+            />
+          ) : null}
+        </DragOverlay>
+      </DndContext>
+      {isSettingsOpen ? (
+        <div
+          className="settings-modal__backdrop"
+          data-hide-in-screenshot="true"
+        >
+          <div
+            className="settings-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Tier settings"
+          >
+            <div className="settings-modal__title">
+              <h2>Tier List Settings</h2>
+              <button
+                type="button"
+                className="item-card__remove settings-modal__close"
+                onClick={handleCloseSettings}
+                aria-label="Close settings"
+              >
+                ×
+              </button>
+            </div>
+            <div className="settings-modal__rows">
+              {editorTiers.map((tier, index) => {
+                const previewColor =
+                  colorsInverted && invertedTierColors[tier.id]
+                    ? invertedTierColors[tier.id].color
+                    : tier.color
+                return (
+                  <div key={tier.id} className="settings-tier-row">
+                    <div className="settings-tier-row__input">
+                      <input
+                        type="text"
+                        value={tier.label}
+                        maxLength={14}
+                        onChange={(event) =>
+                          handleEditTierLabel(tier.id, event.target.value)
+                        }
+                        aria-label={`Tier label for ${tier.label}`}
+                      />
+                    </div>
+                    <div className="settings-tier-row__controls">
+                      <button
+                        type="button"
+                        onClick={() => handleMoveTier(index, -1)}
+                        disabled={index === 0}
+                        aria-label={`Move ${tier.label} up`}
+                      >
+                        ↑
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleMoveTier(index, 1)}
+                        disabled={index === editorTiers.length - 1}
+                        aria-label={`Move ${tier.label} down`}
+                      >
+                        ↓
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteTier(tier.id)}
+                        disabled={editorTiers.length <= 1}
+                        aria-label={`Delete ${tier.label} tier`}
+                      >
+                        🗑
+                      </button>
+                    </div>
+                    <input
+                      type="color"
+                      value={previewColor}
+                      onChange={(event) =>
+                        handleEditTierColor(tier.id, event.target.value)
+                      }
+                      aria-label={`Tier color for ${tier.label}`}
+                    />
+                  </div>
+                )
+              })}
+            </div>
+            <div className="settings-modal__actions">
+              <button
+                type="button"
+                onClick={handleAddTierRow}
+                disabled={editorTiers.length >= 20}
+              >
+                Add Tier
+              </button>
+              <button
+                type="button"
+                onClick={handleInvertColors}
+                aria-pressed={colorsInverted}
+              >
+                {colorsInverted ? 'Disable Inverted Colors' : 'Invert Colors'}
+              </button>
+              <button type="button" onClick={handleResetEditor}>
+                Reset to Default
+              </button>
+            </div>
+            <div className="settings-modal__footer">
+              <button type="button" onClick={handleCloseSettings}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleApplySettings}
+                disabled={!editorTiers.length}
+              >
+                Apply
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {isAddItemsOpen ? (
+        <div className="settings-modal__backdrop" data-hide-in-screenshot="true">
+          <div className="settings-modal">
+            <div className="settings-modal__title">
+              <h2>Add Text Items</h2>
+              <button
+                type="button"
+                className="item-card__remove settings-modal__close"
+                onClick={closeAddItemsModal}
+                aria-label="Close add text items"
+              >
+                ×
+              </button>
+            </div>
+            <div className="add-items-modal__rows">
+              {newTextItems.map((row, index) => (
+                <div key={row.id} className="add-items-row">
+                  <div className="add-items-row__index">{index + 1}</div>
+                  <input
+                    type="text"
+                    value={row.label}
+                    onChange={(event) =>
+                      handleTextItemChange(row.id, 'label', event.target.value)
+                    }
+                    placeholder="Title"
+                  />
+                  <input
+                    type="text"
+                    value={row.badge}
+                    maxLength={5}
+                    onChange={(event) =>
+                      handleTextItemChange(row.id, 'badge', event.target.value)
+                    }
+                    placeholder="Code"
+                  />
+                  <input
+                    type="color"
+                    value={row.color}
+                    onChange={(event) =>
+                      handleTextItemChange(row.id, 'color', event.target.value)
+                    }
+                    aria-label="Item color"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveTextRow(row.id)}
+                    aria-label={`Remove row ${index + 1}`}
+                  >
+                    🗑
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="settings-modal__actions">
+              <button type="button" onClick={handleAddTextItemRow}>
+                Add Row
+              </button>
+            </div>
+            <div className="settings-modal__footer">
+              <button type="button" onClick={closeAddItemsModal}>
+                Cancel
+              </button>
+              <button type="button" onClick={handleSaveNewTextItems}>
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+export default App
