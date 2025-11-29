@@ -7,6 +7,16 @@ interface ItemCardProps {
   hideRemove?: boolean
   showLabel?: boolean
   onRemove?: (id: string) => void
+  isEditing?: boolean
+  editFormData?: {
+    label: string
+    badge: string
+    color: string
+  } | null
+  onStartEdit?: (id: string) => void
+  onSaveEdit?: () => void
+  onCancelEdit?: () => void
+  onUpdateEditForm?: (field: 'label' | 'badge' | 'color', value: string) => void
 }
 
 export function ItemCard({
@@ -14,6 +24,12 @@ export function ItemCard({
   hideRemove = false,
   showLabel = true,
   onRemove,
+  isEditing = false,
+  editFormData,
+  onStartEdit,
+  onSaveEdit,
+  onCancelEdit,
+  onUpdateEditForm,
 }: ItemCardProps) {
   const {
     setNodeRef,
@@ -22,7 +38,7 @@ export function ItemCard({
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: item.id })
+  } = useSortable({ id: item.id, disabled: isEditing })
 
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
@@ -30,13 +46,40 @@ export function ItemCard({
     opacity: isDragging ? 0.4 : 1,
   }
 
+  const handleDoubleClick = (event: React.MouseEvent) => {
+    if (onStartEdit && !isEditing) {
+      event.stopPropagation()
+      onStartEdit(item.id)
+    }
+  }
+
+  const handleKeyDown = (event: React.KeyboardEvent) => {
+    if (!isEditing) return
+
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      onSaveEdit?.()
+    } else if (event.key === 'Escape') {
+      event.preventDefault()
+      onCancelEdit?.()
+    }
+  }
+
+  const handleBlur = (event: React.FocusEvent) => {
+    // Only save if we're not focusing another input within the card
+    if (!event.currentTarget.contains(event.relatedTarget as Node)) {
+      onSaveEdit?.()
+    }
+  }
+
   return (
     <div
       ref={setNodeRef}
-      className="item-card"
+      className={`item-card${isEditing ? ' item-card--editing' : ''}`}
       style={style}
-      {...attributes}
-      {...listeners}
+      {...(isEditing ? {} : attributes)}
+      {...(isEditing ? {} : listeners)}
+      onDoubleClick={handleDoubleClick}
     >
       {!hideRemove && !isDragging && onRemove && (
         <button
@@ -58,8 +101,17 @@ export function ItemCard({
           ×
         </button>
       )}
+
+      {/* Image or color badge (not editable) */}
       {item.image ? (
         <img src={item.image} alt={item.label} />
+      ) : isEditing && editFormData ? (
+        <div
+          className="item-card__fallback"
+          style={{ backgroundColor: editFormData.color }}
+        >
+          <span>{(editFormData.badge || editFormData.label.slice(0, 2)).toUpperCase()}</span>
+        </div>
       ) : (
         <div
           className="item-card__fallback"
@@ -68,7 +120,47 @@ export function ItemCard({
           <span>{(item.badge ?? item.label.slice(0, 2)).toUpperCase()}</span>
         </div>
       )}
-      {showLabel ? <p>{item.label}</p> : null}
+
+      {/* Label - editable or display */}
+      {showLabel && (
+        <div className="item-card__label-section">
+          {isEditing && editFormData ? (
+            <div className="item-card__edit-form" onBlur={handleBlur}>
+              <input
+                type="text"
+                className="item-card__edit-input"
+                value={editFormData.label}
+                onChange={(e) => onUpdateEditForm?.('label', e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Title"
+                autoFocus
+                maxLength={50}
+              />
+              {!item.image && (
+                <>
+                  <input
+                    type="text"
+                    className="item-card__edit-input item-card__edit-input--badge"
+                    value={editFormData.badge}
+                    onChange={(e) => onUpdateEditForm?.('badge', e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder="Code"
+                    maxLength={2}
+                  />
+                  <input
+                    type="color"
+                    className="item-card__edit-input item-card__edit-input--color"
+                    value={editFormData.color}
+                    onChange={(e) => onUpdateEditForm?.('color', e.target.value)}
+                  />
+                </>
+              )}
+            </div>
+          ) : (
+            <p>{item.label}</p>
+          )}
+        </div>
+      )}
     </div>
   )
 }

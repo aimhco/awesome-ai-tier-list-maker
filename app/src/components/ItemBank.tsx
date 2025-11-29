@@ -8,6 +8,16 @@ interface ItemBankProps {
   itemsById: Record<string, Item>
   showLabels: boolean
   onRemoveItem: (id: string) => void
+  editingItemId?: string | null
+  editFormData?: {
+    label: string
+    badge: string
+    color: string
+  } | null
+  onStartEdit?: (id: string) => void
+  onSaveEdit?: () => void
+  onCancelEdit?: () => void
+  onUpdateEditForm?: (field: 'label' | 'badge' | 'color', value: string) => void
 }
 
 export function ItemBank({
@@ -15,6 +25,12 @@ export function ItemBank({
   itemsById,
   showLabels,
   onRemoveItem,
+  editingItemId,
+  editFormData,
+  onStartEdit,
+  onSaveEdit,
+  onCancelEdit,
+  onUpdateEditForm,
 }: ItemBankProps) {
   const { isOver, setNodeRef } = useDroppable({ id: 'bank' })
 
@@ -38,6 +54,12 @@ export function ItemBank({
                 item={itemsById[id]}
                 showLabel={showLabels}
                 onRemove={onRemoveItem}
+                isEditing={editingItemId === id}
+                editFormData={editingItemId === id ? editFormData : null}
+                onStartEdit={onStartEdit}
+                onSaveEdit={onSaveEdit}
+                onCancelEdit={onCancelEdit}
+                onUpdateEditForm={onUpdateEditForm}
               />
             ))
           )}

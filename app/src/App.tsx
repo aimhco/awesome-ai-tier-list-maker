@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { ChangeEvent } from 'react'
+import type { ChangeEvent, KeyboardEvent } from 'react'
 import {
   DndContext,
   MouseSensor,
@@ -395,7 +395,7 @@ function App() {
   }, [activeItems])
 
   const [activeId, setActiveId] = useState<string | null>(null)
-  const [title, setTitle] = useState('Tier List')
+  const [title, setTitle] = useState('Awesome Tier List')
   const [colorsInverted, setColorsInverted] = useState(false)
   const [presentationMode, setPresentationMode] = useState(false)
   const [themeMode, setThemeMode] = useState<ThemeMode>('dark')
@@ -407,6 +407,13 @@ function App() {
   const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false)
   const [selectedConfigId, setSelectedConfigId] = useState<string | null>(null)
   const [activeConfigId, setActiveConfigId] = useState<string | null>(null)
+  const [editingItemId, setEditingItemId] = useState<string | null>(null)
+  const [editFormData, setEditFormData] = useState<{
+    label: string
+    badge: string
+    color: string
+  } | null>(null)
+  const titleBeforeEditRef = useRef<string>('')
 
   const appRef = useRef<HTMLDivElement>(null)
 
@@ -627,7 +634,22 @@ function App() {
 
   const handleTitleBlur = () => {
     if (!title.trim()) {
-      setTitle('Tier List')
+      setTitle('Awesome Tier List')
+    }
+  }
+
+  const handleTitleFocus = () => {
+    titleBeforeEditRef.current = title
+  }
+
+  const handleTitleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      event.currentTarget.blur()
+    } else if (event.key === 'Escape') {
+      event.preventDefault()
+      setTitle(titleBeforeEditRef.current)
+      event.currentTarget.blur()
     }
   }
 
@@ -979,6 +1001,94 @@ function App() {
     }
   }
 
+  const handleStartEditItem = (itemId: string) => {
+    // Try to find item in custom items first, then in all items
+    let item = customItems.find((item) => item.id === itemId)
+    if (!item) {
+      item = activeItems.find((item) => item.id === itemId)
+    }
+    if (!item) return
+
+    setEditingItemId(itemId)
+    setEditFormData({
+      label: item.label,
+      badge: item.badge || '',
+      color: item.color || '#8b5cf6',
+    })
+  }
+
+  const handleSaveEditItem = () => {
+    if (!editingItemId || !editFormData) return
+
+    const isCustomItem = customItems.some((item) => item.id === editingItemId)
+
+    if (isCustomItem) {
+      // Update existing custom item
+      const nextCustom = customItems.map((item) =>
+        item.id === editingItemId
+          ? {
+              ...item,
+              label: editFormData.label.trim() || item.label,
+              badge: editFormData.badge.trim().slice(0, 2).toUpperCase() || undefined,
+              color: editFormData.color,
+              textColor: getContrastingTextColor(editFormData.color),
+            }
+          : item
+      )
+
+      setCustomItems(nextCustom)
+      updateStorage(placements, tierConfig, disabledItems, nextCustom)
+    } else {
+      // Convert default item to custom item
+      const defaultItem = baseItems.find((item) => item.id === editingItemId)
+      if (!defaultItem) return
+
+      // Generate a new ID for the custom item
+      const newItemId = generateItemId()
+
+      const newCustomItem: CustomItem = {
+        ...defaultItem,
+        id: newItemId,
+        label: editFormData.label.trim() || defaultItem.label,
+        badge: editFormData.badge.trim().slice(0, 2).toUpperCase() || undefined,
+        color: editFormData.color,
+        textColor: getContrastingTextColor(editFormData.color),
+      }
+
+      // Update placements to replace old ID with new ID
+      const nextPlacements = { ...placements }
+      Object.keys(nextPlacements).forEach((key) => {
+        nextPlacements[key] = nextPlacements[key].map((id) =>
+          id === editingItemId ? newItemId : id
+        )
+      })
+
+      const nextCustom = [...customItems, newCustomItem]
+      const nextDisabled = [...disabledItems, editingItemId]
+
+      setPlacements(nextPlacements)
+      setCustomItems(nextCustom)
+      setDisabledItems(nextDisabled)
+      updateStorage(nextPlacements, tierConfig, nextDisabled, nextCustom)
+    }
+
+    setEditingItemId(null)
+    setEditFormData(null)
+  }
+
+  const handleCancelEditItem = () => {
+    setEditingItemId(null)
+    setEditFormData(null)
+  }
+
+  const handleUpdateEditForm = (field: 'label' | 'badge' | 'color', value: string) => {
+    if (!editFormData) return
+    setEditFormData({
+      ...editFormData,
+      [field]: value,
+    })
+  }
+
   useEffect(() => {
     if (typeof document !== 'undefined') {
       document.body.dataset.theme = themeMode
@@ -1217,6 +1327,14 @@ function App() {
           </button>
           <button
             type="button"
+            className="icon-button icon-button--save"
+            aria-label="Save"
+            disabled
+          >
+            💾
+          </button>
+          <button
+            type="button"
             className="icon-button icon-button--settings"
             aria-label="Settings menu"
             disabled
@@ -1240,7 +1358,7 @@ function App() {
             <span className="theme-toggle__thumb" aria-hidden="true" />
           </button>
         </div>
-        <h1 className="app__title">
+        <h1 className={`app__title${!presentationMode ? ' app__title--editable' : ''}`}>
           <input
             className="app__title-input"
             type="text"
@@ -1248,6 +1366,9 @@ function App() {
             value={title}
             onChange={handleTitleChange}
             onBlur={handleTitleBlur}
+            onFocus={handleTitleFocus}
+            onKeyDown={handleTitleKeyDown}
+            readOnly={presentationMode}
             aria-label="Tier list title"
           />
         </h1>
@@ -1281,6 +1402,12 @@ function App() {
           itemsById={itemsById}
           showLabels={!hideTitles}
           onRemoveItem={handleRemoveItem}
+          editingItemId={editingItemId}
+          editFormData={editFormData}
+          onStartEdit={handleStartEditItem}
+          onSaveEdit={handleSaveEditItem}
+          onCancelEdit={handleCancelEditItem}
+          onUpdateEditForm={handleUpdateEditForm}
         />
         <div className="tier-list">
           {themedTiers.map((tier) => (
@@ -1292,6 +1419,12 @@ function App() {
               showLabels={!hideTitles}
               labelWidth={labelWidth}
               onRemoveItem={handleRemoveItem}
+              editingItemId={editingItemId}
+              editFormData={editFormData}
+              onStartEdit={handleStartEditItem}
+              onSaveEdit={handleSaveEditItem}
+              onCancelEdit={handleCancelEditItem}
+              onUpdateEditForm={handleUpdateEditForm}
             />
           ))}
         </div>

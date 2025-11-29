@@ -10,6 +10,16 @@ interface TierRowProps {
   showLabels: boolean
   labelWidth: number
   onRemoveItem: (id: string) => void
+  editingItemId?: string | null
+  editFormData?: {
+    label: string
+    badge: string
+    color: string
+  } | null
+  onStartEdit?: (id: string) => void
+  onSaveEdit?: () => void
+  onCancelEdit?: () => void
+  onUpdateEditForm?: (field: 'label' | 'badge' | 'color', value: string) => void
 }
 
 export function TierRow({
@@ -19,6 +29,12 @@ export function TierRow({
   showLabels,
   labelWidth,
   onRemoveItem,
+  editingItemId,
+  editFormData,
+  onStartEdit,
+  onSaveEdit,
+  onCancelEdit,
+  onUpdateEditForm,
 }: TierRowProps) {
   const { isOver, setNodeRef } = useDroppable({ id: tier.id })
 
@@ -52,6 +68,12 @@ export function TierRow({
               item={itemsById[id]}
               showLabel={showLabels}
               onRemove={onRemoveItem}
+              isEditing={editingItemId === id}
+              editFormData={editingItemId === id ? editFormData : null}
+              onStartEdit={onStartEdit}
+              onSaveEdit={onSaveEdit}
+              onCancelEdit={onCancelEdit}
+              onUpdateEditForm={onUpdateEditForm}
             />
           ))}
         </div>

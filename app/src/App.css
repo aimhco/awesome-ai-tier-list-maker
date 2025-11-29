@@ -39,10 +39,16 @@
   transition: border-color 160ms ease, background 160ms ease;
 }
 
-.app__title:focus-within {
+.app__title--editable:focus-within {
   outline: none;
   border-color: var(--color-accent);
   background: var(--color-title-highlight);
+}
+
+.app__title--editable:hover {
+  border-color: var(--color-accent);
+  background: var(--color-title-highlight);
+  cursor: text;
 }
 
 .app__title-input {
@@ -58,6 +64,10 @@
 
 .app__title-input:focus {
   outline: none;
+}
+
+.app__title-input[readonly] {
+  cursor: default;
 }
 
 .app__toolbar-row {
@@ -352,6 +362,53 @@
   opacity: 1;
   transform: scale(1);
   pointer-events: auto;
+}
+
+/* Item Card Editing Styles */
+.item-card--editing {
+  cursor: default;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-accent), 0 8px 16px var(--color-shadow-soft);
+}
+
+.item-card__label-section {
+  width: 100%;
+}
+
+.item-card__edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  width: 100%;
+}
+
+.item-card__edit-input {
+  width: 100%;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-align: center;
+  border: 1px solid var(--color-card-border);
+  border-radius: 6px;
+  background: var(--color-body-bg);
+  color: var(--color-text-primary);
+  font-family: inherit;
+}
+
+.item-card__edit-input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.item-card__edit-input--badge {
+  text-transform: uppercase;
+  font-size: 0.7rem;
+}
+
+.item-card__edit-input--color {
+  height: 28px;
+  padding: 0.15rem;
+  cursor: pointer;
 }
 
 .settings-modal__backdrop {
