@@ -8,6 +8,8 @@ interface ToolbarProps {
   onScreenshot: () => void
   onExport: () => void
   onSaveList: () => void
+  onSaveAsNew?: () => void
+  activeConfigName?: string
   hideTitles: boolean
   colorsInverted: boolean
 }
@@ -22,6 +24,8 @@ export function Toolbar({
   onScreenshot,
   onExport,
   onSaveList,
+  onSaveAsNew,
+  activeConfigName,
   hideTitles,
 }: ToolbarProps) {
   return (
@@ -55,8 +59,13 @@ export function Toolbar({
         Copy JSON
       </button>
       <button type="button" onClick={onSaveList}>
-        Save List
+        {activeConfigName ? `Update "${activeConfigName}"` : 'Save List'}
       </button>
+      {activeConfigName && onSaveAsNew && (
+        <button type="button" onClick={onSaveAsNew}>
+          Save As New
+        </button>
+      )}
     </div>
   )
 }

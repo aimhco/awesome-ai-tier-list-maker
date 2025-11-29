@@ -47,6 +47,18 @@ type UploadingImage = {
   loading: boolean
 }
 
+type SavedConfig = {
+  id: string
+  name: string
+  timestamp: number
+  state: {
+    placements: Placements
+    tiers: TierConfig[]
+    disabledItems: string[]
+    customItems: CustomItem[]
+  }
+}
+
 const STORAGE_KEY = 'codex-tier-list-state'
 const DEFAULT_TIERS: TierConfig[] = tiers.map((tier) => ({ ...tier }))
 const DEFAULT_ITEMS: Item[] = items.map((item) => ({ ...item }))
@@ -390,6 +402,11 @@ function App() {
   const [hideTitles, setHideTitles] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [editorTiers, setEditorTiers] = useState<TierConfig[]>([])
+  const [savedConfigs, setSavedConfigs] = useState<SavedConfig[]>([])
+  const [showLoadConfirmation, setShowLoadConfirmation] = useState(false)
+  const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false)
+  const [selectedConfigId, setSelectedConfigId] = useState<string | null>(null)
+  const [activeConfigId, setActiveConfigId] = useState<string | null>(null)
 
   const appRef = useRef<HTMLDivElement>(null)
 
@@ -431,6 +448,173 @@ function App() {
     return containerOrder.find((container) =>
       placements[container].includes(id as string),
     )
+  }
+
+  // Save/Load configuration functions
+  const loadSavedConfigs = (): SavedConfig[] => {
+    if (!isBrowser()) return []
+
+    try {
+      const stored = window.localStorage.getItem('codex-tier-list-saved-configs')
+      if (!stored) return []
+
+      const configs = JSON.parse(stored) as SavedConfig[]
+      // Sort by timestamp descending (newest first)
+      return configs.sort((a, b) => b.timestamp - a.timestamp)
+    } catch (error) {
+      console.error('Failed to load saved configs:', error)
+      return []
+    }
+  }
+
+  const handleSaveCurrentList = () => {
+    // If there's an active config, update it
+    if (activeConfigId) {
+      const activeConfig = savedConfigs.find(c => c.id === activeConfigId)
+      if (activeConfig) {
+        const updatedConfigs = savedConfigs.map(config =>
+          config.id === activeConfigId
+            ? {
+                ...config,
+                name: title.trim() || 'Untitled Tier List',
+                timestamp: Date.now(),
+                state: {
+                  placements: { ...placements },
+                  tiers: [...tierConfig],
+                  disabledItems: [...disabledItems],
+                  customItems: [...customItems],
+                },
+              }
+            : config
+        )
+
+        // Sort by timestamp descending (newest first)
+        const sortedConfigs = updatedConfigs.sort((a, b) => b.timestamp - a.timestamp)
+        setSavedConfigs(sortedConfigs)
+
+        // Persist to localStorage
+        if (isBrowser()) {
+          window.localStorage.setItem(
+            'codex-tier-list-saved-configs',
+            JSON.stringify(sortedConfigs)
+          )
+        }
+
+        alert(`Updated "${activeConfig.name}" successfully!`)
+        return
+      }
+    }
+
+    // Otherwise, save as new
+    handleSaveAsNew()
+  }
+
+  const handleSaveAsNew = () => {
+    // Check limit
+    if (savedConfigs.length >= 15) {
+      alert('Maximum 15 saved lists reached. Please delete a list before saving a new one.')
+      return
+    }
+
+    // Get list name from title (trim and default if empty)
+    const listName = title.trim() || 'Untitled Tier List'
+
+    // Create new config
+    const newConfig: SavedConfig = {
+      id: `config-${Date.now()}`,
+      name: listName,
+      timestamp: Date.now(),
+      state: {
+        placements: { ...placements },
+        tiers: [...tierConfig],
+        disabledItems: [...disabledItems],
+        customItems: [...customItems],
+      },
+    }
+
+    // Add to saved configs
+    const updatedConfigs = [newConfig, ...savedConfigs]
+    setSavedConfigs(updatedConfigs)
+
+    // Persist to localStorage
+    if (isBrowser()) {
+      window.localStorage.setItem(
+        'codex-tier-list-saved-configs',
+        JSON.stringify(updatedConfigs)
+      )
+    }
+
+    // Set as active config
+    setActiveConfigId(newConfig.id)
+
+    alert(`Saved "${listName}" successfully!`)
+  }
+
+  const handleLoadListClick = (configId: string) => {
+    setSelectedConfigId(configId)
+    setShowLoadConfirmation(true)
+  }
+
+  const confirmLoadList = () => {
+    if (!selectedConfigId) return
+
+    const config = savedConfigs.find(c => c.id === selectedConfigId)
+    if (!config) return
+
+    // Restore state
+    setPlacements(config.state.placements)
+    setTierConfig(config.state.tiers)
+    setDisabledItems(config.state.disabledItems)
+    setCustomItems(config.state.customItems)
+    setTitle(config.name)
+
+    // Set as active config
+    setActiveConfigId(selectedConfigId)
+
+    // Update current state storage
+    updateStorage(
+      config.state.placements,
+      config.state.tiers,
+      config.state.disabledItems,
+      config.state.customItems
+    )
+
+    setShowLoadConfirmation(false)
+    setSelectedConfigId(null)
+  }
+
+  const cancelLoadList = () => {
+    setShowLoadConfirmation(false)
+    setSelectedConfigId(null)
+  }
+
+  const handleDeleteListClick = (configId: string) => {
+    setSelectedConfigId(configId)
+    setShowDeleteConfirmation(true)
+  }
+
+  const confirmDeleteList = () => {
+    if (!selectedConfigId) return
+
+    // Remove from saved configs
+    const updatedConfigs = savedConfigs.filter(c => c.id !== selectedConfigId)
+    setSavedConfigs(updatedConfigs)
+
+    // Update localStorage
+    if (isBrowser()) {
+      window.localStorage.setItem(
+        'codex-tier-list-saved-configs',
+        JSON.stringify(updatedConfigs)
+      )
+    }
+
+    setShowDeleteConfirmation(false)
+    setSelectedConfigId(null)
+  }
+
+  const cancelDeleteList = () => {
+    setShowDeleteConfirmation(false)
+    setSelectedConfigId(null)
   }
 
   const handleInvertColors = () => {
@@ -801,6 +985,12 @@ function App() {
     }
   }, [themeMode])
 
+  useEffect(() => {
+    // Load saved configs on mount
+    const configs = loadSavedConfigs()
+    setSavedConfigs(configs)
+  }, [])
+
   const handleScreenshot = async () => {
     if (!isBrowser() || !appRef.current) return
     const frame = appRef.current.cloneNode(true) as HTMLElement
@@ -973,6 +1163,7 @@ function App() {
     setPlacements(nextPlacements)
     setDisabledItems([])
     setCustomItems([])
+    setActiveConfigId(null)
     updateStorage(nextPlacements, defaultTiers, [], [])
   }
 
@@ -1071,7 +1262,9 @@ function App() {
               onOpenSettings={handleOpenSettings}
               onScreenshot={handleScreenshot}
               onExport={handleExport}
-              onSaveList={handleSaveList}
+              onSaveList={handleSaveCurrentList}
+              onSaveAsNew={handleSaveAsNew}
+              activeConfigName={activeConfigId ? savedConfigs.find(c => c.id === activeConfigId)?.name : undefined}
               hideTitles={hideTitles}
               colorsInverted={colorsInverted}
             />
@@ -1112,6 +1305,57 @@ function App() {
           ) : null}
         </DragOverlay>
       </DndContext>
+
+      {/* Saved Lists Section */}
+      {savedConfigs.length > 0 && (
+        <>
+          <hr className="saved-lists-divider" />
+          <div className="saved-lists-section">
+            <h3 className="saved-lists-title">
+              Saved Tier Lists
+              {savedConfigs.length >= 15 && (
+                <span style={{ fontSize: '0.9rem', color: 'var(--color-text-subtle)', marginLeft: '0.5rem' }}>
+                  (Limit: 15/15 reached)
+                </span>
+              )}
+            </h3>
+            <div className="saved-lists-grid">
+              {savedConfigs.map((config) => (
+                <div key={config.id} className="saved-list-card">
+                  <div className="saved-list-card__header">
+                    <h4 className="saved-list-card__name">{config.name}</h4>
+                    <span className="saved-list-card__date">
+                      {new Date(config.timestamp).toLocaleDateString()}
+                    </span>
+                  </div>
+                  <div className="saved-list-card__meta">
+                    <span>{config.state.tiers.length} tiers</span>
+                    <span>•</span>
+                    <span>
+                      {Object.values(config.state.placements).flat().length} items
+                    </span>
+                  </div>
+                  <div className="saved-list-card__actions">
+                    <button
+                      className="button button--secondary"
+                      onClick={() => handleLoadListClick(config.id)}
+                    >
+                      Load
+                    </button>
+                    <button
+                      className="button button--danger"
+                      onClick={() => handleDeleteListClick(config.id)}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+
       {isSettingsOpen ? (
         <div
           className="settings-modal__backdrop"
@@ -1383,6 +1627,52 @@ function App() {
           </div>
         </div>
       ) : null}
+
+      {/* Load Confirmation Dialog */}
+      {showLoadConfirmation && selectedConfigId && (
+        <div className="settings-modal__backdrop">
+          <div className="confirmation-dialog">
+            <h3>Load Tier List?</h3>
+            <p>
+              Loading "{savedConfigs.find(c => c.id === selectedConfigId)?.name}" will replace your current tier list.
+            </p>
+            <p className="confirmation-dialog__warning">
+              Make sure to save your current list if you want to keep it!
+            </p>
+            <div className="confirmation-dialog__actions">
+              <button className="button" onClick={cancelLoadList}>
+                Cancel
+              </button>
+              <button className="button button--primary" onClick={confirmLoadList}>
+                Load
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      {showDeleteConfirmation && selectedConfigId && (
+        <div className="settings-modal__backdrop">
+          <div className="confirmation-dialog">
+            <h3>Delete Saved List?</h3>
+            <p>
+              Are you sure you want to delete "{savedConfigs.find(c => c.id === selectedConfigId)?.name}"?
+            </p>
+            <p className="confirmation-dialog__warning">
+              This action cannot be undone.
+            </p>
+            <div className="confirmation-dialog__actions">
+              <button className="button" onClick={cancelDeleteList}>
+                Cancel
+              </button>
+              <button className="button button--danger" onClick={confirmDeleteList}>
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
