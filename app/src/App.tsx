@@ -17,7 +17,6 @@ import type {
 import { arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable'
 import { ItemBank } from './components/ItemBank'
 import { TierRow } from './components/TierRow'
-import { Toolbar } from './components/Toolbar'
 import { ItemCard } from './components/ItemCard'
 import { items, tiers, type Item, type Tier, type TierId } from './data'
 import { toPng } from 'html-to-image'
@@ -414,6 +413,10 @@ function App() {
     color: string
   } | null>(null)
   const titleBeforeEditRef = useRef<string>('')
+  const [isSaveDropdownOpen, setIsSaveDropdownOpen] = useState(false)
+  const saveDropdownRef = useRef<HTMLDivElement>(null)
+  const [isSettingsDropdownOpen, setIsSettingsDropdownOpen] = useState(false)
+  const settingsDropdownRef = useRef<HTMLDivElement>(null)
 
   const appRef = useRef<HTMLDivElement>(null)
 
@@ -660,6 +663,51 @@ function App() {
   const handleThemeChange = (mode: ThemeMode) => {
     setThemeMode(mode)
   }
+
+  // Save button click handler
+  const handleSaveButtonClick = () => {
+    if (activeConfigId) {
+      // If there's an active config, toggle the dropdown
+      setIsSaveDropdownOpen(!isSaveDropdownOpen)
+    } else {
+      // Otherwise, just save
+      handleSaveCurrentList()
+    }
+  }
+
+  // Click outside to close save dropdown
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (saveDropdownRef.current && !saveDropdownRef.current.contains(event.target as Node)) {
+        setIsSaveDropdownOpen(false)
+      }
+    }
+
+    if (isSaveDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside)
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [isSaveDropdownOpen])
+
+  // Click outside to close settings dropdown
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (settingsDropdownRef.current && !settingsDropdownRef.current.contains(event.target as Node)) {
+        setIsSettingsDropdownOpen(false)
+      }
+    }
+
+    if (isSettingsDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside)
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [isSettingsDropdownOpen])
 
   const handleUploadImages = () => {
     setIsUploadImagesOpen(true)
@@ -1274,6 +1322,7 @@ function App() {
     setDisabledItems([])
     setCustomItems([])
     setActiveConfigId(null)
+    setTitle('Awesome Tier List')
     updateStorage(nextPlacements, defaultTiers, [], [])
   }
 
@@ -1295,7 +1344,14 @@ function App() {
     if (!isBrowser()) return
     const payload = containerOrder.reduce<Record<string, string[]>>(
       (acc, container) => {
-        acc[container] = placements[container]
+        // Use 'bank' for item bank, otherwise use tier label
+        if (container === 'bank') {
+          acc[container] = placements[container]
+        } else {
+          const tier = tierConfig.find(t => t.id === container)
+          const label = tier?.label || container
+          acc[label] = placements[container]
+        }
         return acc
       },
       {},
@@ -1322,25 +1378,102 @@ function App() {
             onClick={togglePresentationMode}
             aria-pressed={presentationMode}
             aria-label={presentationMode ? 'Exit presentation mode' : 'Enter presentation mode'}
+            title={presentationMode ? 'Exit Presentation Mode' : 'Presentation Mode'}
           >
             {presentationMode ? '✕' : '▶'}
           </button>
-          <button
-            type="button"
-            className="icon-button icon-button--save"
-            aria-label="Save"
-            disabled
-          >
-            💾
-          </button>
-          <button
-            type="button"
-            className="icon-button icon-button--settings"
-            aria-label="Settings menu"
-            disabled
-          >
-            ⚙
-          </button>
+          <div className="icon-button-container" ref={saveDropdownRef}>
+            <button
+              type="button"
+              className="icon-button icon-button--save"
+              onClick={handleSaveButtonClick}
+              aria-label="Save"
+              aria-expanded={isSaveDropdownOpen}
+              title="Save"
+            >
+              💾
+            </button>
+            {isSaveDropdownOpen && activeConfigId && (
+              <div className="icon-button__dropdown">
+                <button
+                  type="button"
+                  className="icon-button__dropdown-option"
+                  onClick={() => {
+                    handleSaveCurrentList()
+                    setIsSaveDropdownOpen(false)
+                  }}
+                >
+                  Update "{savedConfigs.find(c => c.id === activeConfigId)?.name}"
+                </button>
+                <button
+                  type="button"
+                  className="icon-button__dropdown-option"
+                  onClick={() => {
+                    handleSaveAsNew()
+                    setIsSaveDropdownOpen(false)
+                  }}
+                >
+                  Save As New
+                </button>
+              </div>
+            )}
+          </div>
+          <div className="icon-button-container" ref={settingsDropdownRef}>
+            <button
+              type="button"
+              className="icon-button icon-button--settings"
+              onClick={() => setIsSettingsDropdownOpen(!isSettingsDropdownOpen)}
+              aria-label="Settings menu"
+              aria-expanded={isSettingsDropdownOpen}
+              title="Settings Menu"
+            >
+              ⚙
+            </button>
+            {isSettingsDropdownOpen && (
+              <div className="icon-button__dropdown">
+                <button
+                  type="button"
+                  className="icon-button__dropdown-option"
+                  onClick={() => {
+                    handleOpenSettings()
+                    setIsSettingsDropdownOpen(false)
+                  }}
+                >
+                  Settings
+                </button>
+                <button
+                  type="button"
+                  className="icon-button__dropdown-option"
+                  onClick={() => {
+                    handleScreenshot()
+                    setIsSettingsDropdownOpen(false)
+                  }}
+                >
+                  Screenshot
+                </button>
+                <button
+                  type="button"
+                  className="icon-button__dropdown-option"
+                  onClick={() => {
+                    handleExport()
+                    setIsSettingsDropdownOpen(false)
+                  }}
+                >
+                  Copy JSON
+                </button>
+                <button
+                  type="button"
+                  className="icon-button__dropdown-option"
+                  onClick={() => {
+                    handleResetApplication()
+                    setIsSettingsDropdownOpen(false)
+                  }}
+                >
+                  Reset Application
+                </button>
+              </div>
+            )}
+          </div>
           <button
             type="button"
             className={`theme-toggle${themeMode === 'light' ? ' is-light' : ' is-dark'}`}
@@ -1348,6 +1481,7 @@ function App() {
               handleThemeChange(themeMode === 'light' ? 'dark' : 'light')
             }
             aria-label={`Switch to ${themeMode === 'light' ? 'dark' : 'light'} mode`}
+            title={`Switch to ${themeMode === 'light' ? 'Dark' : 'Light'} Mode`}
           >
             <span className="theme-toggle__icon" aria-hidden="true">
               ☀
@@ -1370,27 +1504,9 @@ function App() {
             onKeyDown={handleTitleKeyDown}
             readOnly={presentationMode}
             aria-label="Tier list title"
+            title={!presentationMode ? 'Click to edit (Enter to save, Esc to cancel)' : ''}
           />
         </h1>
-        {!presentationMode && (
-          <div className="app__toolbar-row" data-hide-in-screenshot="true">
-            <Toolbar
-              onAddTextItem={handleAddTextItem}
-              onUploadImages={handleUploadImages}
-              onToggleHideTitles={handleToggleHideTitles}
-              onResetPlacements={handleResetPlacements}
-              onReset={handleResetApplication}
-              onOpenSettings={handleOpenSettings}
-              onScreenshot={handleScreenshot}
-              onExport={handleExport}
-              onSaveList={handleSaveCurrentList}
-              onSaveAsNew={handleSaveAsNew}
-              activeConfigName={activeConfigId ? savedConfigs.find(c => c.id === activeConfigId)?.name : undefined}
-              hideTitles={hideTitles}
-              colorsInverted={colorsInverted}
-            />
-          </div>
-        )}
       </div>
       <DndContext
         sensors={sensors}
@@ -1408,6 +1524,11 @@ function App() {
           onSaveEdit={handleSaveEditItem}
           onCancelEdit={handleCancelEditItem}
           onUpdateEditForm={handleUpdateEditForm}
+          onAddTextItem={handleAddTextItem}
+          onUploadImages={handleUploadImages}
+          onToggleHideTitles={handleToggleHideTitles}
+          onResetPlacements={handleResetPlacements}
+          presentationMode={presentationMode}
         />
         <div className="tier-list">
           {themedTiers.map((tier) => (
@@ -1440,10 +1561,10 @@ function App() {
       </DndContext>
 
       {/* Saved Lists Section */}
-      {savedConfigs.length > 0 && (
+      {!presentationMode && savedConfigs.length > 0 && (
         <>
-          <hr className="saved-lists-divider" />
-          <div className="saved-lists-section">
+          <hr className="saved-lists-divider" data-hide-in-screenshot="true" />
+          <div className="saved-lists-section" data-hide-in-screenshot="true">
             <h3 className="saved-lists-title">
               Saved Tier Lists
               {savedConfigs.length >= 15 && (
@@ -1472,12 +1593,14 @@ function App() {
                     <button
                       className="button button--secondary"
                       onClick={() => handleLoadListClick(config.id)}
+                      title={`Load "${config.name}" tier list`}
                     >
                       Load
                     </button>
                     <button
                       className="button button--danger"
                       onClick={() => handleDeleteListClick(config.id)}
+                      title={`Delete "${config.name}" tier list`}
                     >
                       Delete
                     </button>
@@ -1507,6 +1630,7 @@ function App() {
                 className="item-card__remove settings-modal__close"
                 onClick={handleCloseSettings}
                 aria-label="Close settings"
+                title="Close settings"
               >
                 ×
               </button>
@@ -1536,6 +1660,7 @@ function App() {
                         onClick={() => handleMoveTier(index, -1)}
                         disabled={index === 0}
                         aria-label={`Move ${tier.label} up`}
+                        title={`Move ${tier.label} up`}
                       >
                         ↑
                       </button>
@@ -1544,6 +1669,7 @@ function App() {
                         onClick={() => handleMoveTier(index, 1)}
                         disabled={index === editorTiers.length - 1}
                         aria-label={`Move ${tier.label} down`}
+                        title={`Move ${tier.label} down`}
                       >
                         ↓
                       </button>
@@ -1552,6 +1678,7 @@ function App() {
                         onClick={() => handleDeleteTier(tier.id)}
                         disabled={editorTiers.length <= 1}
                         aria-label={`Delete ${tier.label} tier`}
+                        title={`Delete ${tier.label} tier`}
                       >
                         🗑
                       </button>
@@ -1573,6 +1700,7 @@ function App() {
                 type="button"
                 onClick={handleAddTierRow}
                 disabled={editorTiers.length >= 20}
+                title="Add a new tier row"
               >
                 Add Tier
               </button>
@@ -1580,21 +1708,23 @@ function App() {
                 type="button"
                 onClick={handleInvertColors}
                 aria-pressed={colorsInverted}
+                title={colorsInverted ? 'Disable inverted tier colors' : 'Invert tier colors for dark/light mode'}
               >
                 {colorsInverted ? 'Disable Inverted Colors' : 'Invert Colors'}
               </button>
-              <button type="button" onClick={handleResetEditor}>
+              <button type="button" onClick={handleResetEditor} title="Reset tiers to default configuration">
                 Reset to Default
               </button>
             </div>
             <div className="settings-modal__footer">
-              <button type="button" onClick={handleCloseSettings}>
+              <button type="button" onClick={handleCloseSettings} title="Cancel without saving">
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={handleApplySettings}
                 disabled={!editorTiers.length}
+                title="Apply settings changes"
               >
                 Apply
               </button>

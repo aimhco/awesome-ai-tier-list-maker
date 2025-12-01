@@ -80,12 +80,14 @@ export function ItemCard({
       {...(isEditing ? {} : attributes)}
       {...(isEditing ? {} : listeners)}
       onDoubleClick={handleDoubleClick}
+      title={!isEditing && onStartEdit ? 'Double-click to edit (Enter to save, Esc to cancel)' : isEditing ? 'Editing: Enter to save, Esc to cancel' : ''}
     >
       {!hideRemove && !isDragging && onRemove && (
         <button
           type="button"
           className="item-card__remove"
           aria-label={`Remove ${item.label}`}
+          title={`Remove ${item.label}`}
           onPointerDown={(event) => {
             event.stopPropagation()
           }}

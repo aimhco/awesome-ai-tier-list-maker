@@ -1,3 +1,4 @@
+import { useState, useRef, useEffect } from 'react'
 import { useDroppable } from '@dnd-kit/core'
 import { SortableContext, rectSortingStrategy } from '@dnd-kit/sortable'
 import { ItemCard } from './ItemCard'
@@ -18,6 +19,11 @@ interface ItemBankProps {
   onSaveEdit?: () => void
   onCancelEdit?: () => void
   onUpdateEditForm?: (field: 'label' | 'badge' | 'color', value: string) => void
+  onAddTextItem?: () => void
+  onUploadImages?: () => void
+  onToggleHideTitles?: () => void
+  onResetPlacements?: () => void
+  presentationMode?: boolean
 }
 
 export function ItemBank({
@@ -31,14 +37,103 @@ export function ItemBank({
   onSaveEdit,
   onCancelEdit,
   onUpdateEditForm,
+  onAddTextItem,
+  onUploadImages,
+  onToggleHideTitles,
+  onResetPlacements,
+  presentationMode = false,
 }: ItemBankProps) {
   const { isOver, setNodeRef } = useDroppable({ id: 'bank' })
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsDropdownOpen(false)
+      }
+    }
+
+    if (isDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside)
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [isDropdownOpen])
+
+  const handleAddTextItemClick = () => {
+    setIsDropdownOpen(false)
+    onAddTextItem?.()
+  }
+
+  const handleUploadImagesClick = () => {
+    setIsDropdownOpen(false)
+    onUploadImages?.()
+  }
 
   return (
     <section className="item-bank" data-item-bank="wrapper">
       <header data-item-bank="header">
-        <h2>Item Bank</h2>
-        <p data-item-bank="subtitle">Drag items into a tier below to build your ranking.</p>
+        <div className="item-bank__header-content">
+          <div className="item-bank__header-text">
+            <h2>Item Bank</h2>
+            <p data-item-bank="subtitle">Drag items into a tier below to build your ranking.</p>
+          </div>
+          {!presentationMode && (
+            <div className="item-bank__actions" data-hide-in-screenshot="true">
+              <div className="item-bank__add-button-container" ref={dropdownRef}>
+                <button
+                  type="button"
+                  className="item-bank__add-button"
+                  onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                  aria-label="Add items"
+                  aria-expanded={isDropdownOpen}
+                  title="Add Items"
+                >
+                  +
+                </button>
+                {isDropdownOpen && (
+                  <div className="item-bank__dropdown">
+                    <button
+                      type="button"
+                      className="item-bank__dropdown-option"
+                      onClick={handleAddTextItemClick}
+                    >
+                      Add Text Item(s)
+                    </button>
+                    <button
+                      type="button"
+                      className="item-bank__dropdown-option"
+                      onClick={handleUploadImagesClick}
+                    >
+                      Upload Image(s)
+                    </button>
+                  </div>
+                )}
+              </div>
+              <button
+                type="button"
+                className="item-bank__action-button"
+                onClick={onToggleHideTitles}
+                aria-pressed={!showLabels}
+                title={showLabels ? 'Hide all item titles' : 'Show all item titles'}
+              >
+                {showLabels ? 'Hide Item Titles' : 'Show Item Titles'}
+              </button>
+              <button
+                type="button"
+                className="item-bank__action-button"
+                onClick={onResetPlacements}
+                aria-label="Reset tiers"
+                title="Move all items back to Item Bank"
+              >
+                Reset Tiers
+              </button>
+            </div>
+          )}
+        </div>
       </header>
       <SortableContext items={itemIds} strategy={rectSortingStrategy}>
         <div
