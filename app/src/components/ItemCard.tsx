@@ -2,6 +2,23 @@ import { CSS } from '@dnd-kit/utilities'
 import { useSortable } from '@dnd-kit/sortable'
 import type { Item } from '../data'
 
+// Calculate if a color is dark and needs white text
+function shouldUseWhiteText(hexColor: string): boolean {
+  // Remove # if present
+  const hex = hexColor.replace('#', '')
+
+  // Convert to RGB
+  const r = parseInt(hex.substring(0, 2), 16)
+  const g = parseInt(hex.substring(2, 4), 16)
+  const b = parseInt(hex.substring(4, 6), 16)
+
+  // Calculate relative luminance (WCAG formula)
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+
+  // If luminance is less than 0.5, use white text
+  return luminance < 0.5
+}
+
 interface ItemCardProps {
   item: Item
   hideRemove?: boolean
@@ -110,14 +127,20 @@ export function ItemCard({
       ) : isEditing && editFormData ? (
         <div
           className="item-card__fallback"
-          style={{ backgroundColor: editFormData.color }}
+          style={{
+            backgroundColor: editFormData.color,
+            color: shouldUseWhiteText(editFormData.color) ? '#ffffff' : '#000000'
+          }}
         >
           <span>{(editFormData.badge || editFormData.label.slice(0, 2)).toUpperCase()}</span>
         </div>
       ) : (
         <div
           className="item-card__fallback"
-          style={{ backgroundColor: item.color ?? '#323232' }}
+          style={{
+            backgroundColor: item.color ?? '#323232',
+            color: shouldUseWhiteText(item.color ?? '#323232') ? '#ffffff' : '#000000'
+          }}
         >
           <span>{(item.badge ?? item.label.slice(0, 2)).toUpperCase()}</span>
         </div>

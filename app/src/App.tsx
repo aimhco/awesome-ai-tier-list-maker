@@ -21,6 +21,7 @@ import { ItemCard } from './components/ItemCard'
 import { items, tiers, type Item, type Tier, type TierId } from './data'
 import { toPng } from 'html-to-image'
 import { processImageFile } from './utils/imageProcessor'
+import { useOpenRouter } from './hooks/useOpenRouter'
 import './App.css'
 
 type ContainerId = TierId | 'bank'
@@ -85,16 +86,6 @@ const TIER_COLOR_PALETTE = [
   '#5a2910',
   '#4a2510',
 ]
-
-const invertedTierColors: Record<string, { color: string; textColor: string }> =
-  {
-    s: { color: '#f44336', textColor: '#330504' },
-    a: { color: '#ff9f43', textColor: '#421500' },
-    b: { color: '#ffd166', textColor: '#3a2700' },
-    c: { color: '#c0d860', textColor: '#303800' },
-    d: { color: '#7bc74d', textColor: '#163900' },
-    f: { color: '#4caf50', textColor: '#08260f' },
-  }
 
 const cloneTiers = (tierList: TierConfig[]) =>
   tierList.map((tier) => ({ ...tier }))
@@ -397,7 +388,11 @@ function App() {
   const [title, setTitle] = useState('Awesome Tier List')
   const [colorsInverted, setColorsInverted] = useState(false)
   const [presentationMode, setPresentationMode] = useState(false)
-  const [themeMode, setThemeMode] = useState<ThemeMode>('dark')
+  const [themeMode, setThemeMode] = useState<ThemeMode>('light')
+
+  // AI state
+  const ai = useOpenRouter()
+  const [aiEnabled, setAiEnabled] = useState(false)
   const [hideTitles, setHideTitles] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [editorTiers, setEditorTiers] = useState<TierConfig[]>([])
@@ -422,9 +417,17 @@ function App() {
 
   const themedTiers = useMemo(() => {
     if (!colorsInverted) return tierConfig
-    return tierConfig.map((tier) => ({
+
+    // Reverse the color order: 1st gets last's color, 2nd gets 2nd-to-last's color, etc.
+    const reversedColors = tierConfig.map((tier) => ({
+      color: tier.color,
+      textColor: tier.textColor,
+    })).reverse()
+
+    return tierConfig.map((tier, index) => ({
       ...tier,
-      ...(invertedTierColors[tier.id] ?? {}),
+      color: reversedColors[index].color,
+      textColor: reversedColors[index].textColor,
     }))
   }, [colorsInverted, tierConfig])
 
@@ -709,6 +712,26 @@ function App() {
     }
   }, [isSettingsDropdownOpen])
 
+  // Load AI enabled state from localStorage
+  useEffect(() => {
+    const enabled = localStorage.getItem('ai-enabled') === 'true'
+    if (enabled && ai.available) {
+      setAiEnabled(true)
+    }
+  }, [ai.available])
+
+  // Save AI enabled state
+  useEffect(() => {
+    localStorage.setItem('ai-enabled', aiEnabled.toString())
+  }, [aiEnabled])
+
+  // Update editor tiers when colors are inverted while settings modal is open
+  useEffect(() => {
+    if (isSettingsOpen) {
+      setEditorTiers(cloneTiers(themedTiers))
+    }
+  }, [colorsInverted, isSettingsOpen, themedTiers])
+
   const handleUploadImages = () => {
     setIsUploadImagesOpen(true)
   }
@@ -846,7 +869,8 @@ function App() {
   }
 
   const handleOpenSettings = () => {
-    setEditorTiers(cloneTiers(tierConfig))
+    // Use themedTiers so settings show inverted colors when active
+    setEditorTiers(cloneTiers(themedTiers))
     setIsSettingsOpen(true)
   }
 
@@ -1008,7 +1032,23 @@ function App() {
 
   const handleApplySettings = () => {
     if (!editorTiers.length) return
-    const sanitized = editorTiers.map((tier) => ({
+
+    // If colors are inverted, un-invert them before saving to tierConfig
+    let tiersToSave = editorTiers
+    if (colorsInverted) {
+      const reversedColors = editorTiers.map((tier) => ({
+        color: tier.color,
+        textColor: tier.textColor,
+      })).reverse()
+
+      tiersToSave = editorTiers.map((tier, index) => ({
+        ...tier,
+        color: reversedColors[index].color,
+        textColor: reversedColors[index].textColor,
+      }))
+    }
+
+    const sanitized = tiersToSave.map((tier) => ({
       ...tier,
       label: tier.label.trim() || 'Tier',
       textColor: tier.textColor || getContrastingTextColor(tier.color),
@@ -1179,6 +1219,13 @@ function App() {
     if (header) {
       header.style.gap = '0.25rem'
       header.style.marginBottom = '0.35rem'
+    }
+
+    // Ensure item bank grid wraps properly in screenshot
+    const itemBankGrid = frame.querySelector('.item-bank__grid') as HTMLElement | null
+    if (itemBankGrid) {
+      itemBankGrid.style.maxWidth = '700px'
+      itemBankGrid.style.margin = '0 auto'
     }
 
     const staging = document.createElement('div')
@@ -1381,6 +1428,28 @@ function App() {
             title={presentationMode ? 'Exit Presentation Mode' : 'Presentation Mode'}
           >
             {presentationMode ? '✕' : '▶'}
+          </button>
+          <button
+            type="button"
+            className={`icon-button icon-button--ai${aiEnabled ? ' is-active' : ''}`}
+            onClick={() => {
+              if (!ai.available) {
+                alert(
+                  'OpenRouter API key not found.\n\n' +
+                  '1. Get free API key: https://openrouter.ai/keys\n' +
+                  '2. Add to .env.local: VITE_OPENROUTER_API_KEY=your_key\n' +
+                  '3. Restart dev server'
+                )
+                return
+              }
+              setAiEnabled(!aiEnabled)
+            }}
+            title={aiEnabled ? 'AI Features Enabled' : 'Enable AI Features'}
+            aria-label={aiEnabled ? 'Disable AI' : 'Enable AI'}
+            aria-pressed={aiEnabled}
+          >
+            <span className="ai-icon">✨</span>
+            <span className="ai-label">AI</span>
           </button>
           <div className="icon-button-container" ref={saveDropdownRef}>
             <button
@@ -1637,10 +1706,8 @@ function App() {
             </div>
             <div className="settings-modal__rows">
               {editorTiers.map((tier, index) => {
-                const previewColor =
-                  colorsInverted && invertedTierColors[tier.id]
-                    ? invertedTierColors[tier.id].color
-                    : tier.color
+                // Always edit the actual tier color in settings, not the inverted display color
+                const previewColor = tier.color
                 return (
                   <div key={tier.id} className="settings-tier-row">
                     <div className="settings-tier-row__input">

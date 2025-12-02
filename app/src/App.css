@@ -118,6 +118,55 @@
   cursor: default;
 }
 
+/* AI Toggle Button (Purple with Star Icon) */
+.icon-button--ai {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.1rem;
+  padding: 0.45rem 0.6rem;
+  height: 32px;
+  border-radius: 50%;
+  font-size: 0.8rem;
+  font-weight: 600;
+  border: 2px solid #7c3aed;
+  background: transparent;
+  color: var(--color-text-primary);
+  transition: all 0.2s ease;
+}
+
+.icon-button--ai .ai-icon {
+  font-size: 0.9rem;
+  line-height: 1;
+  filter: drop-shadow(0 0 2px rgba(124, 58, 237, 0.5));
+}
+
+.icon-button--ai .ai-label {
+  line-height: 1;
+}
+
+.icon-button--ai:hover {
+  background: rgba(124, 58, 237, 0.1);
+  border-color: #7c3aed;
+}
+
+.icon-button--ai.is-active {
+  background: linear-gradient(135deg, #7c3aed 0%, #a855f7 100%);
+  border-color: #7c3aed;
+  color: white;
+  box-shadow: 0 2px 8px rgba(124, 58, 237, 0.3);
+}
+
+.icon-button--ai.is-active .ai-icon {
+  filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.8));
+  animation: sparkle 2s ease-in-out infinite;
+}
+
+@keyframes sparkle {
+  0%, 100% { transform: scale(1) rotate(0deg); }
+  50% { transform: scale(1.1) rotate(10deg); }
+}
+
 .icon-button-container {
   position: relative;
   display: inline-block;
