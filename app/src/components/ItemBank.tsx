@@ -21,9 +21,11 @@ interface ItemBankProps {
   onUpdateEditForm?: (field: 'label' | 'badge' | 'color', value: string) => void
   onAddTextItem?: () => void
   onUploadImages?: () => void
+  onAISuggestions?: () => void
   onToggleHideTitles?: () => void
   onResetPlacements?: () => void
   presentationMode?: boolean
+  aiEnabled?: boolean
 }
 
 export function ItemBank({
@@ -39,9 +41,11 @@ export function ItemBank({
   onUpdateEditForm,
   onAddTextItem,
   onUploadImages,
+  onAISuggestions,
   onToggleHideTitles,
   onResetPlacements,
   presentationMode = false,
+  aiEnabled = false,
 }: ItemBankProps) {
   const { isOver, setNodeRef } = useDroppable({ id: 'bank' })
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
@@ -71,6 +75,11 @@ export function ItemBank({
   const handleUploadImagesClick = () => {
     setIsDropdownOpen(false)
     onUploadImages?.()
+  }
+
+  const handleAISuggestionsClick = () => {
+    setIsDropdownOpen(false)
+    onAISuggestions?.()
   }
 
   return (
@@ -110,6 +119,15 @@ export function ItemBank({
                     >
                       Upload Image(s)
                     </button>
+                    {aiEnabled && (
+                      <button
+                        type="button"
+                        className="item-bank__dropdown-option"
+                        onClick={handleAISuggestionsClick}
+                      >
+                        AI Suggestions ✨
+                      </button>
+                    )}
                   </div>
                 )}
               </div>

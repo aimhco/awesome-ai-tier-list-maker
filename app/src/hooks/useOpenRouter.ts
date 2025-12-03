@@ -18,6 +18,7 @@ export function useOpenRouter() {
       setStatus('success')
       return result
     } catch (err) {
+      console.error('AI task failed:', err)
       const aiError: AIError = {
         message: err instanceof Error ? err.message : 'Unknown error',
         code: 'TASK_FAILED',

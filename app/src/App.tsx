@@ -22,6 +22,9 @@ import { items, tiers, type Item, type Tier, type TierId } from './data'
 import { toPng } from 'html-to-image'
 import { processImageFile } from './utils/imageProcessor'
 import { useOpenRouter } from './hooks/useOpenRouter'
+import { AIItemSuggestionsModal } from './components/AIItemSuggestionsModal'
+import { generateItemSuggestions } from './services/aiItemSuggestions'
+import type { AIItemSuggestion } from './types/ai'
 import './App.css'
 
 type ContainerId = TierId | 'bank'
@@ -393,6 +396,10 @@ function App() {
   // AI state
   const ai = useOpenRouter()
   const [aiEnabled, setAiEnabled] = useState(false)
+  const [isAISuggestionsOpen, setIsAISuggestionsOpen] = useState(false)
+  const [aiSuggestions, setAiSuggestions] = useState<AIItemSuggestion[]>([])
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false)
+  const [suggestionsError, setSuggestionsError] = useState<string | null>(null)
   const [hideTitles, setHideTitles] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [editorTiers, setEditorTiers] = useState<TierConfig[]>([])
@@ -732,6 +739,20 @@ function App() {
     }
   }, [colorsInverted, isSettingsOpen, themedTiers])
 
+  // Warn user before leaving page if there are unsaved items
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      // Only warn if there are items in the tier list
+      if (customItems.length > 0) {
+        e.preventDefault()
+        e.returnValue = '' // Chrome requires returnValue to be set
+      }
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [customItems])
+
   const handleUploadImages = () => {
     setIsUploadImagesOpen(true)
   }
@@ -905,6 +926,65 @@ function App() {
 
   const handleAddTextItem = () => {
     openAddItemsModal()
+  }
+
+  const handleAISuggestions = async () => {
+    if (!ai.available) {
+      alert('AI features require an OpenRouter API key. Please configure it in .env.local')
+      return
+    }
+
+    setIsAISuggestionsOpen(true)
+    setSuggestionsLoading(true)
+    setSuggestionsError(null)
+    setAiSuggestions([])
+
+    const existingLabels = customItems.map((item) => item.label)
+
+    const result = await ai.executeTask(async () => {
+      return generateItemSuggestions({
+        title,
+        existingItems: existingLabels,
+        count: 5,
+      })
+    })
+
+    setSuggestionsLoading(false)
+
+    if (result) {
+      setAiSuggestions(result)
+    } else if (ai.error) {
+      setSuggestionsError(ai.error.message)
+    }
+  }
+
+  const handleAddSuggestedItems = (selectedLabels: string[]) => {
+    const newItems: Item[] = selectedLabels.map((label) => ({
+      id: generateItemId(),
+      label,
+      color: '#8b5cf6',
+    }))
+
+    setCustomItems((prev) => [...prev, ...newItems])
+
+    const newItemIds = newItems.map((item) => item.id)
+    setPlacements((prev) => ({
+      ...prev,
+      bank: [...prev.bank, ...newItemIds],
+    }))
+
+    setIsAISuggestionsOpen(false)
+    setAiSuggestions([])
+  }
+
+  const handleCloseSuggestions = () => {
+    setIsAISuggestionsOpen(false)
+    setAiSuggestions([])
+    setSuggestionsError(null)
+  }
+
+  const handleRetrySuggestions = () => {
+    handleAISuggestions()
   }
 
   const handleAddTextItemRow = () => {
@@ -1448,7 +1528,9 @@ function App() {
             aria-label={aiEnabled ? 'Disable AI' : 'Enable AI'}
             aria-pressed={aiEnabled}
           >
-            <span className="ai-icon">✨</span>
+            <span className="ai-icon" aria-hidden="true">
+              ✨
+            </span>
             <span className="ai-label">AI</span>
           </button>
           <div className="icon-button-container" ref={saveDropdownRef}>
@@ -1597,7 +1679,9 @@ function App() {
           onUploadImages={handleUploadImages}
           onToggleHideTitles={handleToggleHideTitles}
           onResetPlacements={handleResetPlacements}
+          onAISuggestions={handleAISuggestions}
           presentationMode={presentationMode}
+          aiEnabled={aiEnabled}
         />
         <div className="tier-list">
           {themedTiers.map((tier) => (
@@ -1957,6 +2041,18 @@ function App() {
           </div>
         </div>
       ) : null}
+
+      {/* AI Item Suggestions Modal */}
+      {isAISuggestionsOpen && (
+        <AIItemSuggestionsModal
+          suggestions={aiSuggestions}
+          isLoading={suggestionsLoading}
+          error={suggestionsError}
+          onAddSelected={handleAddSuggestedItems}
+          onCancel={handleCloseSuggestions}
+          onRetry={handleRetrySuggestions}
+        />
+      )}
 
       {/* Load Confirmation Dialog */}
       {showLoadConfirmation && selectedConfigId && (
