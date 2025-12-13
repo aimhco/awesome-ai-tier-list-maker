@@ -23,8 +23,18 @@ import { toPng } from 'html-to-image'
 import { processImageFile } from './utils/imageProcessor'
 import { useOpenRouter } from './hooks/useOpenRouter'
 import { AIItemSuggestionsModal } from './components/AIItemSuggestionsModal'
+import { AITierPlacementModal } from './components/AITierPlacementModal'
+import { AIDescriptionModal } from './components/AIDescriptionModal'
+import { AISetupWizard } from './components/AISetupWizard'
 import { generateItemSuggestions } from './services/aiItemSuggestions'
-import type { AIItemSuggestion } from './types/ai'
+import { generateTierPlacements } from './services/aiTierPlacement'
+import { generateTierListDescription } from './services/aiDescriptionGenerator'
+import { generateTierListSetup, type TierListSetup } from './services/aiTierListSetup'
+import { extractTextFromImage, getActiveModel } from './services/openRouterService'
+import { parseNaturalLanguageCommand, type ParsedCommand } from './services/aiNaturalCommands'
+import { NaturalCommandModal } from './components/NaturalCommandModal'
+import { getModelDisplayName } from './services/aiConfig'
+import type { AIItemSuggestion, AITierPlacement, AIDescriptionOptions } from './types/ai'
 import './App.css'
 
 type ContainerId = TierId | 'bank'
@@ -48,6 +58,7 @@ type UploadingImage = {
   badge: string
   error?: string
   loading: boolean
+  extractedText?: string[]
 }
 
 type SavedConfig = {
@@ -400,7 +411,23 @@ function App() {
   const [aiSuggestions, setAiSuggestions] = useState<AIItemSuggestion[]>([])
   const [suggestionsLoading, setSuggestionsLoading] = useState(false)
   const [suggestionsError, setSuggestionsError] = useState<string | null>(null)
+  const [isPlacementOpen, setIsPlacementOpen] = useState(false)
+  const [aiPlacements, setAiPlacements] = useState<AITierPlacement[]>([])
+  const [placementLoading, setPlacementLoading] = useState(false)
+  const [placementError, setPlacementError] = useState<string | null>(null)
+  const [isDescriptionOpen, setIsDescriptionOpen] = useState(false)
+  const [aiDescription, setAiDescription] = useState('')
+  const [descriptionLoading, setDescriptionLoading] = useState(false)
+  const [descriptionError, setDescriptionError] = useState<string | null>(null)
+  const [isSetupWizardOpen, setIsSetupWizardOpen] = useState(false)
+  const [setupData, setSetupData] = useState<TierListSetup | null>(null)
+  const [setupLoading, setSetupLoading] = useState(false)
+  const [setupError, setSetupError] = useState<string | null>(null)
+  const [isCommandModalOpen, setIsCommandModalOpen] = useState(false)
+  const [parsedCommand, setParsedCommand] = useState<ParsedCommand | null>(null)
+  const [commandLoading, setCommandLoading] = useState(false)
   const [hideTitles, setHideTitles] = useState(false)
+  const [showDistribution, setShowDistribution] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [editorTiers, setEditorTiers] = useState<TierConfig[]>([])
   const [savedConfigs, setSavedConfigs] = useState<SavedConfig[]>([])
@@ -417,6 +444,8 @@ function App() {
   const titleBeforeEditRef = useRef<string>('')
   const [isSaveDropdownOpen, setIsSaveDropdownOpen] = useState(false)
   const saveDropdownRef = useRef<HTMLDivElement>(null)
+  const [isAiDropdownOpen, setIsAiDropdownOpen] = useState(false)
+  const aiDropdownRef = useRef<HTMLDivElement>(null)
   const [isSettingsDropdownOpen, setIsSettingsDropdownOpen] = useState(false)
   const settingsDropdownRef = useRef<HTMLDivElement>(null)
 
@@ -446,6 +475,29 @@ function App() {
     const base = maxLabelLength * 16
     return Math.min(240, Math.max(90, base))
   }, [maxLabelLength])
+
+  // Calculate distribution percentages for each tier
+  const distributionData = useMemo(() => {
+    // Count items placed in tiers (excluding bank)
+    const tierCounts: Record<string, number> = {}
+    let totalPlaced = 0
+
+    for (const tier of tierConfig) {
+      const count = (placements[tier.id] || []).length
+      tierCounts[tier.id] = count
+      totalPlaced += count
+    }
+
+    // Calculate percentages
+    const percentages: Record<string, number> = {}
+    for (const tier of tierConfig) {
+      percentages[tier.id] = totalPlaced > 0
+        ? Math.round((tierCounts[tier.id] / totalPlaced) * 100)
+        : 0
+    }
+
+    return { percentages, totalPlaced }
+  }, [tierConfig, placements])
 
   const containerOrder = useMemo<ContainerId[]>(
     () => ['bank', ...tierConfig.map((tier) => tier.id)],
@@ -642,7 +694,8 @@ function App() {
   }
 
   const handleTitleChange = (event: ChangeEvent<HTMLInputElement>) => {
-    setTitle(event.target.value)
+    // Limit title to 50 characters
+    setTitle(event.target.value.slice(0, 50))
   }
 
   const handleTitleBlur = () => {
@@ -702,6 +755,23 @@ function App() {
     }
   }, [isSaveDropdownOpen])
 
+  // Click outside to close AI dropdown
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (aiDropdownRef.current && !aiDropdownRef.current.contains(event.target as Node)) {
+        setIsAiDropdownOpen(false)
+      }
+    }
+
+    if (isAiDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside)
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [isAiDropdownOpen])
+
   // Click outside to close settings dropdown
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -755,6 +825,7 @@ function App() {
 
   const handleUploadImages = () => {
     setIsUploadImagesOpen(true)
+    hasShownModelErrorRef.current = false
   }
 
   const closeUploadImagesModal = () => {
@@ -790,13 +861,54 @@ function App() {
     for (const img of initialImages) {
       try {
         const base64 = await processImageFile(img.file)
+
+        // Update with preview first
         setUploadingImages(prev =>
           prev.map(item =>
             item.id === img.id
-              ? { ...item, preview: base64, loading: false }
+              ? { ...item, preview: base64, loading: extractTextOCR }
               : item
           )
         )
+
+        // Extract text from image (OCR) if enabled
+        if (extractTextOCR && aiEnabled && ai.available) {
+          try {
+            const mimeType = img.file.type
+            const base64Data = base64.split(',')[1]
+
+            const extractedTexts = await extractTextFromImage({
+              base64: base64Data,
+              mimeType
+            })
+
+            setUploadingImages(prev =>
+              prev.map(item =>
+                item.id === img.id
+                  ? { ...item, extractedText: extractedTexts, loading: false }
+                  : item
+              )
+            )
+          } catch (ocrError) {
+            console.warn('OCR extraction failed:', ocrError)
+            setUploadingImages(prev =>
+              prev.map(item =>
+                item.id === img.id
+                  ? { ...item, loading: false }
+                  : item
+              )
+            )
+          }
+        } else {
+          // No OCR, just mark as not loading
+          setUploadingImages(prev =>
+            prev.map(item =>
+              item.id === img.id
+                ? { ...item, loading: false }
+                : item
+            )
+          )
+        }
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Failed to process image'
         setUploadingImages(prev =>
@@ -849,16 +961,46 @@ function App() {
 
     setIsProcessingUpload(true)
 
-    const newItems = validImages.map(img => ({
-      id: img.id,
-      label: img.label.trim().slice(0, 50) || img.file.name,
-      image: img.preview,
-    }))
+    // Create items from extracted text (OCR) first
+    const ocrItems: CustomItem[] = []
+    const imagesWithOcr = new Set<string>()
+
+    validImages.forEach(img => {
+      if (img.extractedText && img.extractedText.length > 0) {
+        imagesWithOcr.add(img.id)
+        img.extractedText.forEach((text, idx) => {
+          if (text.trim()) {
+            const label = text.trim().slice(0, 50)
+            // Auto-generate badge from first two letters of label
+            const badge = label.slice(0, 2).toUpperCase()
+            ocrItems.push({
+              id: `${img.id}-ocr-${idx}`,
+              label,
+              badge,
+              color: '#8b5cf6',
+            })
+          }
+        })
+      }
+    })
+
+    // Create items from images - but skip images that had OCR extraction
+    // (user only wants OCR text items, not the source image)
+    const newItems = validImages
+      .filter(img => !imagesWithOcr.has(img.id))
+      .map(img => ({
+        id: img.id,
+        label: img.label.trim().slice(0, 50) || img.file.name,
+        image: img.preview,
+      }))
+
+    // Combine image items and OCR items
+    const allNewItems = [...newItems, ...ocrItems]
 
     // Check for duplicates before adding
     setCustomItems(prev => {
       const existingIds = new Set(prev.map(item => item.id))
-      const uniqueNewItems = newItems.filter(item => !existingIds.has(item.id))
+      const uniqueNewItems = allNewItems.filter(item => !existingIds.has(item.id))
 
       if (uniqueNewItems.length === 0) {
         return prev // No new items to add
@@ -903,6 +1045,10 @@ function App() {
     setHideTitles((prev) => !prev)
   }
 
+  const handleToggleDistribution = () => {
+    setShowDistribution((prev) => !prev)
+  }
+
   const handleSaveList = () => {
     // Placeholder handler for upcoming save functionality
   }
@@ -913,6 +1059,7 @@ function App() {
   const [isUploadImagesOpen, setIsUploadImagesOpen] = useState(false)
   const [uploadingImages, setUploadingImages] = useState<UploadingImage[]>([])
   const [isProcessingUpload, setIsProcessingUpload] = useState(false)
+  const [extractTextOCR, setExtractTextOCR] = useState(false)
 
   const openAddItemsModal = () => {
     setNewTextItems([{ id: generateItemId(), label: '', badge: '', color: '#8b5cf6' }])
@@ -939,7 +1086,8 @@ function App() {
     setSuggestionsError(null)
     setAiSuggestions([])
 
-    const existingLabels = customItems.map((item) => item.label)
+    // Use all active items (both default and custom) for context
+    const existingLabels = activeItems.map((item) => item.label)
 
     const result = await ai.executeTask(async () => {
       return generateItemSuggestions({
@@ -985,6 +1133,437 @@ function App() {
 
   const handleRetrySuggestions = () => {
     handleAISuggestions()
+  }
+
+  // Tier Placement handlers
+  const handleAutoPlaceTiers = async () => {
+    if (!ai.available) {
+      alert('AI features require an OpenRouter API key. Please configure it in .env.local')
+      return
+    }
+
+    // Only place items from the bank
+    const bankItemIds = placements.bank
+    if (bankItemIds.length === 0) {
+      alert('No items in Item Bank to place')
+      return
+    }
+
+    setIsPlacementOpen(true)
+    setPlacementLoading(true)
+    setPlacementError(null)
+    setAiPlacements([])
+
+    const itemsToPlace = bankItemIds
+      .map(id => {
+        const item = itemsById[id]
+        return item ? { id: item.id, label: item.label } : null
+      })
+      .filter((item): item is { id: string; label: string } => item !== null)
+
+    const result = await ai.executeTask(async () => {
+      return generateTierPlacements({
+        title,
+        tiers: themedTiers.map(t => ({ id: t.id, label: t.label })),
+        items: itemsToPlace,
+      })
+    })
+
+    setPlacementLoading(false)
+
+    if (result) {
+      setAiPlacements(result)
+    } else if (ai.error) {
+      setPlacementError(ai.error.message)
+    }
+  }
+
+  const handleApplyPlacements = (selectedPlacements: AITierPlacement[]) => {
+    // Move items from bank to their suggested tiers
+    setPlacements((prev) => {
+      const next = { ...prev }
+
+      selectedPlacements.forEach((placement) => {
+        // Remove from bank
+        next.bank = next.bank.filter(id => id !== placement.itemId)
+
+        // Add to suggested tier
+        const tierId = placement.tier as ContainerId
+        if (!next[tierId]) {
+          next[tierId] = []
+        }
+        next[tierId] = [...next[tierId], placement.itemId]
+      })
+
+      updateStorage(next)
+      return next
+    })
+
+    setIsPlacementOpen(false)
+    setAiPlacements([])
+  }
+
+  const handleClosePlacement = () => {
+    setIsPlacementOpen(false)
+    setAiPlacements([])
+    setPlacementError(null)
+  }
+
+  const handleRetryPlacement = () => {
+    handleAutoPlaceTiers()
+  }
+
+  const handleOpenDescription = () => {
+    setIsDescriptionOpen(true)
+    setAiDescription('')
+    setDescriptionError(null)
+  }
+
+  const handleGenerateDescription = async (options: AIDescriptionOptions) => {
+    if (!ai.available) {
+      alert('AI features require an OpenRouter API key. Please configure it in .env.local')
+      return
+    }
+
+    setDescriptionLoading(true)
+    setDescriptionError(null)
+    setAiDescription('')
+
+    // Collect tiers with their items
+    const tiersWithItems = themedTiers.map(tier => ({
+      tier: {
+        id: tier.id,
+        label: tier.label,
+        color: tier.color,
+      },
+      items: (placements[tier.id] || [])
+        .map(itemId => {
+          const item = itemsById[itemId]
+          return item ? { id: item.id, label: item.label } : null
+        })
+        .filter((item): item is { id: string; label: string } => item !== null),
+    }))
+
+    const result = await ai.executeTask(async () => {
+      return generateTierListDescription({
+        title,
+        tiersWithItems,
+        options,
+      })
+    })
+
+    setDescriptionLoading(false)
+
+    if (result) {
+      setAiDescription(result)
+    } else if (ai.error) {
+      setDescriptionError(ai.error.message)
+    }
+  }
+
+  const handleCloseDescription = () => {
+    setIsDescriptionOpen(false)
+    setAiDescription('')
+    setDescriptionError(null)
+  }
+
+  const handleRetryDescription = () => {
+    // The modal will handle regeneration with the current options
+    setDescriptionError(null)
+  }
+
+  const handleOpenSetupWizard = () => {
+    setIsSetupWizardOpen(true)
+    setSetupData(null)
+    setSetupError(null)
+  }
+
+  const handleGenerateSetup = async (topic: string) => {
+    if (!ai.available) {
+      alert('AI features require an OpenRouter API key. Please configure it in .env.local')
+      return
+    }
+
+    setSetupLoading(true)
+    setSetupError(null)
+    setSetupData(null)
+
+    const result = await ai.executeTask(async () => {
+      return generateTierListSetup({
+        topic,
+        numTiers: 5,
+        numItems: 12,
+      })
+    })
+
+    setSetupLoading(false)
+
+    if (result) {
+      setSetupData(result)
+    } else if (ai.error) {
+      setSetupError(ai.error.message)
+    }
+  }
+
+  const handleApplySetup = () => {
+    if (!setupData) return
+
+    // Apply the generated setup
+    setTitle(setupData.title)
+
+    // Create tiers from setup
+    const newTiers: TierConfig[] = setupData.tiers.map((tier, index) => ({
+      id: `tier-${index + 1}` as TierId,
+      label: tier.label,
+      color: tier.color,
+      textColor: tier.textColor,
+    }))
+
+    setTierConfig(newTiers)
+
+    // Create items from setup with auto-generated badges
+    const newItems = setupData.items.map((item, index) => ({
+      id: `item-setup-${index + 1}`,
+      label: item.label,
+      badge: item.label.slice(0, 2).toUpperCase(), // Auto-assign first two letters as badge
+      color: '#8b5cf6',
+    }))
+
+    setCustomItems((prev) => [...prev, ...newItems])
+
+    // Place all items in bank initially
+    setPlacements((prev) => ({
+      ...prev,
+      bank: [...prev.bank, ...newItems.map(i => i.id)],
+    }))
+
+    // Close wizard
+    setIsSetupWizardOpen(false)
+    setSetupData(null)
+  }
+
+  const handleCloseSetupWizard = () => {
+    setIsSetupWizardOpen(false)
+    setSetupData(null)
+    setSetupError(null)
+  }
+
+  const handleRetrySetup = () => {
+    setSetupData(null)
+    setSetupError(null)
+  }
+
+  // Natural Language Command handlers
+  const handleOpenCommandModal = () => {
+    setIsCommandModalOpen(true)
+    setParsedCommand(null)
+  }
+
+  const handleCloseCommandModal = () => {
+    setIsCommandModalOpen(false)
+    setParsedCommand(null)
+  }
+
+  const handleParseCommand = async (command: string) => {
+    if (!ai.available) {
+      alert('AI features require an OpenRouter API key. Please configure it in .env.local')
+      return
+    }
+
+    setCommandLoading(true)
+    setParsedCommand(null)
+
+    // Build context for command parsing
+    const context = {
+      currentTiers: themedTiers.map(t => ({ label: t.label, id: t.id })),
+      currentItems: customItems.map(i => ({ label: i.label, id: i.id }))
+    }
+
+    const result = await ai.executeTask(async () => {
+      return parseNaturalLanguageCommand(command, context)
+    })
+
+    setCommandLoading(false)
+
+    if (result) {
+      setParsedCommand(result)
+    }
+  }
+
+  const handleExecuteCommand = () => {
+    if (!parsedCommand || parsedCommand.action === 'unknown') {
+      alert('Cannot execute unknown command')
+      return
+    }
+
+    try {
+      executeCommand(parsedCommand)
+      handleCloseCommandModal()
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Failed to execute command')
+    }
+  }
+
+  const handleClearCommand = () => {
+    setParsedCommand(null)
+  }
+
+  const executeCommand = (command: ParsedCommand) => {
+    const { action, params } = command
+
+    switch (action) {
+      case 'move_items': {
+        const targetTierLabel = params.targetTier
+        const targetTier = themedTiers.find(t => t.label.toLowerCase() === targetTierLabel?.toLowerCase())
+
+        if (!targetTier) {
+          throw new Error(`Tier "${targetTierLabel}" not found`)
+        }
+
+        if (params.allItems) {
+          // Move all items to target tier
+          const allItemIds = customItems.map(i => i.id)
+          setPlacements(prev => ({
+            ...prev,
+            [targetTier.id]: [...prev[targetTier.id], ...allItemIds],
+            bank: []
+          }))
+        } else if (params.itemNames && params.itemNames.length > 0) {
+          // Move specific items
+          const itemsToMove = params.itemNames
+            .map(name => customItems.find(i => i.label.toLowerCase().includes(name.toLowerCase())))
+            .filter((item): item is typeof customItems[0] => item !== undefined)
+
+          if (itemsToMove.length === 0) {
+            throw new Error('No matching items found')
+          }
+
+          const itemIds = itemsToMove.map(i => i.id)
+
+          setPlacements(prev => {
+            const newPlacements = { ...prev }
+
+            // Remove from all containers
+            Object.keys(newPlacements).forEach(key => {
+              newPlacements[key as ContainerId] = newPlacements[key as ContainerId].filter(
+                id => !itemIds.includes(id)
+              )
+            })
+
+            // Add to target tier
+            newPlacements[targetTier.id] = [...newPlacements[targetTier.id], ...itemIds]
+
+            return newPlacements
+          })
+        }
+        break
+      }
+
+      case 'create_tier': {
+        if (!params.tierName) {
+          throw new Error('Tier name is required')
+        }
+
+        const newTier: TierConfig = {
+          id: `tier-${Date.now()}` as TierId,
+          label: params.tierName,
+          color: '#8b5cf6',
+          textColor: '#FFFFFF'
+        }
+
+        setTierConfig(prev => {
+          const position = params.tierPosition
+          if (position === 'top' || position === 0) {
+            return [newTier, ...prev]
+          } else if (position === 'bottom' || typeof position === 'number') {
+            return [...prev, newTier]
+          }
+          return [...prev, newTier]
+        })
+        break
+      }
+
+      case 'delete_tier': {
+        const tierToDelete = themedTiers.find(
+          t => t.label.toLowerCase() === params.tierToDelete?.toLowerCase()
+        )
+
+        if (!tierToDelete) {
+          throw new Error(`Tier "${params.tierToDelete}" not found`)
+        }
+
+        // Move items to bank before deleting
+        setPlacements(prev => ({
+          ...prev,
+          bank: [...prev.bank, ...(prev[tierToDelete.id] || [])],
+          [tierToDelete.id]: []
+        }))
+
+        setTierConfig(prev => prev.filter(t => t.id !== tierToDelete.id))
+        break
+      }
+
+      case 'rename_tier': {
+        const tierToRename = themedTiers.find(
+          t => t.label.toLowerCase() === params.oldTierName?.toLowerCase()
+        )
+
+        if (!tierToRename) {
+          throw new Error(`Tier "${params.oldTierName}" not found`)
+        }
+
+        if (!params.newTierName) {
+          throw new Error('New tier name is required')
+        }
+
+        setTierConfig(prev =>
+          prev.map(t => t.id === tierToRename.id ? { ...t, label: params.newTierName! } : t)
+        )
+        break
+      }
+
+      case 'clear_tier': {
+        const tierToClear = themedTiers.find(
+          t => t.label.toLowerCase() === params.tierToClear?.toLowerCase()
+        )
+
+        if (!tierToClear) {
+          throw new Error(`Tier "${params.tierToClear}" not found`)
+        }
+
+        setPlacements(prev => ({
+          ...prev,
+          bank: [...prev.bank, ...(prev[tierToClear.id] || [])],
+          [tierToClear.id]: []
+        }))
+        break
+      }
+
+      case 'swap_tiers': {
+        const tier1 = themedTiers.find(t => t.label.toLowerCase() === params.tier1?.toLowerCase())
+        const tier2 = themedTiers.find(t => t.label.toLowerCase() === params.tier2?.toLowerCase())
+
+        if (!tier1 || !tier2) {
+          throw new Error('Both tiers must exist')
+        }
+
+        setTierConfig(prev => {
+          const newTiers = [...prev]
+          const idx1 = newTiers.findIndex(t => t.id === tier1.id)
+          const idx2 = newTiers.findIndex(t => t.id === tier2.id)
+
+          if (idx1 !== -1 && idx2 !== -1) {
+            ;[newTiers[idx1], newTiers[idx2]] = [newTiers[idx2], newTiers[idx1]]
+          }
+
+          return newTiers
+        })
+        break
+      }
+
+      default:
+        throw new Error(`Action "${action}" not implemented`)
+    }
   }
 
   const handleAddTextItemRow = () => {
@@ -1326,7 +1905,8 @@ function App() {
 
       const link = document.createElement('a')
       const safeTitle = title.trim() ? title.trim().replace(/\s+/g, '-') : 'tier-list'
-      link.download = `${safeTitle.toLowerCase()}-${Date.now()}.png`
+      const today = new Date().toISOString().split('T')[0] // YYYY-MM-DD
+      link.download = `${safeTitle.toLowerCase()}-${today}.png`
       link.href = dataUrl
       link.click()
     } catch (error) {
@@ -1509,30 +2089,90 @@ function App() {
           >
             {presentationMode ? '✕' : '▶'}
           </button>
-          <button
-            type="button"
-            className={`icon-button icon-button--ai${aiEnabled ? ' is-active' : ''}`}
-            onClick={() => {
-              if (!ai.available) {
-                alert(
-                  'OpenRouter API key not found.\n\n' +
-                  '1. Get free API key: https://openrouter.ai/keys\n' +
-                  '2. Add to .env.local: VITE_OPENROUTER_API_KEY=your_key\n' +
-                  '3. Restart dev server'
-                )
-                return
-              }
-              setAiEnabled(!aiEnabled)
-            }}
-            title={aiEnabled ? 'AI Features Enabled' : 'Enable AI Features'}
-            aria-label={aiEnabled ? 'Disable AI' : 'Enable AI'}
-            aria-pressed={aiEnabled}
-          >
-            <span className="ai-icon" aria-hidden="true">
-              ✨
-            </span>
-            <span className="ai-label">AI</span>
-          </button>
+          <div className="icon-button-container" ref={aiDropdownRef}>
+            <button
+              type="button"
+              className={`icon-button icon-button--ai${aiEnabled ? ' is-active' : ''}`}
+              onClick={() => setIsAiDropdownOpen(!isAiDropdownOpen)}
+              aria-label="AI menu"
+              aria-expanded={isAiDropdownOpen}
+              title="AI Menu"
+            >
+              <span className="ai-icon" aria-hidden="true">
+                ✨
+              </span>
+              <span className="ai-label">AI</span>
+            </button>
+            {isAiDropdownOpen && (
+              <div className="icon-button__dropdown">
+                <button
+                  type="button"
+                  className="icon-button__dropdown-option"
+                  onClick={() => {
+                    if (!ai.available) {
+                      alert(
+                        'OpenRouter API key not found.\n\n' +
+                        '1. Get free API key: https://openrouter.ai/keys\n' +
+                        '2. Add to .env.local: VITE_OPENROUTER_API_KEY=your_key\n' +
+                        '3. Restart dev server'
+                      )
+                      setIsAiDropdownOpen(false)
+                      return
+                    }
+                    const newEnabled = !aiEnabled
+                    setAiEnabled(newEnabled)
+                    // Close dropdown when disabling AI features
+                    if (!newEnabled) {
+                      setIsAiDropdownOpen(false)
+                    }
+                  }}
+                >
+                  {aiEnabled ? '✓ AI Features Enabled' : 'Enable AI Features'}
+                </button>
+                {aiEnabled && getActiveModel() && (
+                  <div className="icon-button__dropdown-info">
+                    Current AI Model: {getModelDisplayName(getActiveModel()!)}
+                  </div>
+                )}
+                {aiEnabled && (
+                  <button
+                    type="button"
+                    className="icon-button__dropdown-option"
+                    onClick={() => {
+                      handleOpenDescription()
+                      setIsAiDropdownOpen(false)
+                    }}
+                  >
+                    Generate Descriptions ✨
+                  </button>
+                )}
+                {aiEnabled && (
+                  <button
+                    type="button"
+                    className="icon-button__dropdown-option"
+                    onClick={() => {
+                      handleOpenCommandModal()
+                      setIsAiDropdownOpen(false)
+                    }}
+                  >
+                    Natural Commands ✨
+                  </button>
+                )}
+                {aiEnabled && (
+                  <button
+                    type="button"
+                    className="icon-button__dropdown-option"
+                    onClick={() => {
+                      handleOpenSetupWizard()
+                      setIsAiDropdownOpen(false)
+                    }}
+                  >
+                    Tier List Setup Wizard ✨
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
           <div className="icon-button-container" ref={saveDropdownRef}>
             <button
               type="button"
@@ -1656,6 +2296,7 @@ function App() {
             readOnly={presentationMode}
             aria-label="Tier list title"
             title={!presentationMode ? 'Click to edit (Enter to save, Esc to cancel)' : ''}
+            size={Math.max(15, title.length + 2)}
           />
         </h1>
       </div>
@@ -1678,10 +2319,14 @@ function App() {
           onAddTextItem={handleAddTextItem}
           onUploadImages={handleUploadImages}
           onToggleHideTitles={handleToggleHideTitles}
+          onToggleDistribution={handleToggleDistribution}
           onResetPlacements={handleResetPlacements}
           onAISuggestions={handleAISuggestions}
+          onAutoPlaceTiers={handleAutoPlaceTiers}
           presentationMode={presentationMode}
           aiEnabled={aiEnabled}
+          showDistribution={showDistribution}
+          hasPlacedItems={distributionData.totalPlaced > 0}
         />
         <div className="tier-list">
           {themedTiers.map((tier) => (
@@ -1699,6 +2344,8 @@ function App() {
               onSaveEdit={handleSaveEditItem}
               onCancelEdit={handleCancelEditItem}
               onUpdateEditForm={handleUpdateEditForm}
+              showDistribution={showDistribution}
+              distributionPercentage={distributionData.percentages[tier.id] || 0}
             />
           ))}
         </div>
@@ -1985,7 +2632,9 @@ function App() {
                 {uploadingImages.map((img) => (
                   <div key={img.id} className="upload-image-preview">
                     {img.loading ? (
-                      <div className="upload-image-preview__loading">Processing...</div>
+                      <div className="upload-image-preview__loading">
+                        {img.preview ? 'Extracting text...' : 'Processing...'}
+                      </div>
                     ) : img.error ? (
                       <div className="upload-image-preview__error">{img.error}</div>
                     ) : (
@@ -2010,6 +2659,20 @@ function App() {
                           placeholder="Image name"
                           maxLength={50}
                         />
+                        {img.extractedText && img.extractedText.length > 0 && (
+                          <div className="upload-image-preview__extracted-text">
+                            <div className="upload-image-preview__extracted-text-label">
+                              Extracted Text ({img.extractedText.length}):
+                            </div>
+                            <div className="upload-image-preview__extracted-text-items">
+                              {img.extractedText.map((text, idx) => (
+                                <span key={idx} className="upload-image-preview__extracted-text-item">
+                                  {text}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </>
                     )}
                   </div>
@@ -2018,9 +2681,19 @@ function App() {
             )}
 
             <div className="settings-modal__actions">
-              <label htmlFor="image-upload-input" className="upload-images-modal__file-button">
-                {uploadingImages.length > 0 ? 'Add More Images' : 'Choose Images'}
-              </label>
+              <div className="upload-images-modal__controls">
+                <label htmlFor="image-upload-input" className="upload-images-modal__file-button">
+                  {uploadingImages.length > 0 ? 'Add More Images' : 'Choose Images'}
+                </label>
+                <label className="upload-images-modal__auto-caption">
+                  <input
+                    type="checkbox"
+                    checked={extractTextOCR}
+                    onChange={(e) => setExtractTextOCR(e.target.checked)}
+                  />
+                  <span>Extract text from images (OCR)</span>
+                </label>
+              </div>
               {uploadingImages.length >= 20 && (
                 <span className="upload-limit-warning">Maximum 20 images per upload</span>
               )}
@@ -2051,6 +2724,57 @@ function App() {
           onAddSelected={handleAddSuggestedItems}
           onCancel={handleCloseSuggestions}
           onRetry={handleRetrySuggestions}
+        />
+      )}
+
+      {/* AI Tier Placement Modal */}
+      {isPlacementOpen && (
+        <AITierPlacementModal
+          placements={aiPlacements}
+          isLoading={placementLoading}
+          error={placementError}
+          tiers={themedTiers}
+          itemsById={itemsById}
+          onApplySelected={handleApplyPlacements}
+          onCancel={handleClosePlacement}
+          onRetry={handleRetryPlacement}
+        />
+      )}
+
+      {/* AI Description Modal */}
+      {isDescriptionOpen && (
+        <AIDescriptionModal
+          description={aiDescription}
+          isLoading={descriptionLoading}
+          error={descriptionError}
+          onGenerate={handleGenerateDescription}
+          onClose={handleCloseDescription}
+          onRetry={handleRetryDescription}
+        />
+      )}
+
+      {/* AI Setup Wizard */}
+      {isSetupWizardOpen && (
+        <AISetupWizard
+          isLoading={setupLoading}
+          error={setupError}
+          setup={setupData}
+          onGenerate={handleGenerateSetup}
+          onApply={handleApplySetup}
+          onCancel={handleCloseSetupWizard}
+          onRetry={handleRetrySetup}
+        />
+      )}
+
+      {/* Natural Language Command Modal */}
+      {isCommandModalOpen && (
+        <NaturalCommandModal
+          isLoading={commandLoading}
+          parsedCommand={parsedCommand}
+          onSubmit={handleParseCommand}
+          onExecute={handleExecuteCommand}
+          onCancel={handleCloseCommandModal}
+          onClear={handleClearCommand}
         />
       )}
 

@@ -1,5 +1,6 @@
 import { makeRequest } from './openRouterService'
 import type { AIItemSuggestion } from '../types/ai'
+import { safeJsonParse } from '../utils/jsonParser'
 
 interface GenerateSuggestionsOptions {
   title: string
@@ -21,9 +22,16 @@ export async function generateItemSuggestions(
 
   const prompt = `You are helping create a tier list titled "${title}".${existingItemsList}
 
-Suggest ${count} relevant items that would fit this tier list. Each suggestion should:
+IMPORTANT: First, analyze the existing items to understand what category/theme they belong to. For example:
+- If existing items are "Strawberry, Banana, Orange" → the theme is FRUITS
+- If existing items are "Python, JavaScript, Java" → the theme is PROGRAMMING LANGUAGES
+- If existing items are "McDonald's, Wendy's" → the theme is FAST FOOD CHAINS
+
+Then suggest ${count} MORE items from THE SAME CATEGORY as the existing items.
+
+Each suggestion should:
+- Be from the SAME category as the existing items
 - Be specific and concrete (not generic categories)
-- Fit the theme/category of this tier list
 - Be different from existing items
 - Be commonly known or recognizable
 
@@ -32,13 +40,13 @@ Respond with ONLY a JSON object with a "suggestions" array:
   "suggestions": [
     {
       "label": "Item name",
-      "reasoning": "Brief explanation why this fits",
+      "reasoning": "Brief explanation why this fits the same category",
       "confidence": 0.95
     }
   ]
 }
 
-The confidence should be 0-1, where 1 means you're very confident this fits the tier list theme.`
+The confidence should be 0-1, where 1 means you're very confident this fits the same category as existing items.`
 
   try {
     const response = await makeRequest(
@@ -50,7 +58,7 @@ The confidence should be 0-1, where 1 means you're very confident this fits the 
       }
     )
 
-    const parsed = JSON.parse(response)
+    const parsed = safeJsonParse(response)
     const suggestions = Array.isArray(parsed) ? parsed : parsed.suggestions || []
 
     return suggestions

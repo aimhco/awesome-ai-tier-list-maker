@@ -20,6 +20,8 @@ interface TierRowProps {
   onSaveEdit?: () => void
   onCancelEdit?: () => void
   onUpdateEditForm?: (field: 'label' | 'badge' | 'color', value: string) => void
+  showDistribution?: boolean
+  distributionPercentage?: number
 }
 
 export function TierRow({
@@ -35,6 +37,8 @@ export function TierRow({
   onSaveEdit,
   onCancelEdit,
   onUpdateEditForm,
+  showDistribution = false,
+  distributionPercentage = 0,
 }: TierRowProps) {
   const { isOver, setNodeRef } = useDroppable({ id: tier.id })
 
@@ -76,6 +80,11 @@ export function TierRow({
               onUpdateEditForm={onUpdateEditForm}
             />
           ))}
+          {showDistribution && (
+            <div className="tier-row__distribution">
+              {distributionPercentage}%
+            </div>
+          )}
         </div>
       </SortableContext>
     </div>

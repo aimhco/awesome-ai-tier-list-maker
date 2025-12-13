@@ -3,6 +3,7 @@ export interface AIConfig {
   mode: 'user' | 'public'
   apiKey: string
   model: string
+  models?: string[] // Optional array of models for fallback
   freeModelsOnly: boolean
 }
 

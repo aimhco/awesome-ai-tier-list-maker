@@ -22,10 +22,14 @@ interface ItemBankProps {
   onAddTextItem?: () => void
   onUploadImages?: () => void
   onAISuggestions?: () => void
+  onAutoPlaceTiers?: () => void
   onToggleHideTitles?: () => void
+  onToggleDistribution?: () => void
   onResetPlacements?: () => void
   presentationMode?: boolean
   aiEnabled?: boolean
+  showDistribution?: boolean
+  hasPlacedItems?: boolean
 }
 
 export function ItemBank({
@@ -42,10 +46,14 @@ export function ItemBank({
   onAddTextItem,
   onUploadImages,
   onAISuggestions,
+  onAutoPlaceTiers,
   onToggleHideTitles,
+  onToggleDistribution,
   onResetPlacements,
   presentationMode = false,
   aiEnabled = false,
+  showDistribution = false,
+  hasPlacedItems = false,
 }: ItemBankProps) {
   const { isOver, setNodeRef } = useDroppable({ id: 'bank' })
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
@@ -131,6 +139,17 @@ export function ItemBank({
                   </div>
                 )}
               </div>
+              {aiEnabled && itemIds.length > 0 && (
+                <button
+                  type="button"
+                  className="item-bank__action-button"
+                  onClick={onAutoPlaceTiers}
+                  aria-label="Auto-place items with AI"
+                  title="AI Auto-Place: Automatically place items into appropriate tiers"
+                >
+                  Auto-Place ✨
+                </button>
+              )}
               <button
                 type="button"
                 className="item-bank__action-button"
@@ -139,6 +158,15 @@ export function ItemBank({
                 title={showLabels ? 'Hide all item titles' : 'Show all item titles'}
               >
                 {showLabels ? 'Hide Item Titles' : 'Show Item Titles'}
+              </button>
+              <button
+                type="button"
+                className={`item-bank__action-button${showDistribution ? ' item-bank__action-button--active' : ''}`}
+                onClick={onToggleDistribution}
+                aria-pressed={showDistribution}
+                title={showDistribution ? 'Hide tier distribution' : 'Show tier distribution percentages'}
+              >
+                Distribution
               </button>
               <button
                 type="button"

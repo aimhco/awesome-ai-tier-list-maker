@@ -2,21 +2,35 @@ import type { AIConfig } from '../types/ai'
 
 const API_KEY = import.meta.env.VITE_OPENROUTER_API_KEY
 const AI_MODE = import.meta.env.VITE_AI_MODE || 'user'
-const AI_MODEL = import.meta.env.VITE_AI_MODEL || 'x-ai/grok-4.1-fast:free'
+const AI_MODEL = import.meta.env.VITE_AI_MODEL || 'amazon/nova-2-lite-v1:free,google/gemini-2.0-flash-exp:free,meta-llama/llama-3.3-70b-instruct:free'
 
 const FREE_MODELS = [
-  'x-ai/grok-4.1-fast:free',
-  'x-ai/grok-4-fast:free',
-  'google/gemini-flash-1.5:free'
+  'amazon/nova-2-lite-v1:free',
+  'google/gemini-2.0-flash-exp:free',
+  'meta-llama/llama-3.3-70b-instruct:free'
+]
+
+// Free models that support vision/image analysis
+// Note: Most free models have limited or no vision support
+// Gemini 2.0 Flash is the primary free model with vision capability
+export const VISION_MODELS = [
+  'google/gemini-2.0-flash-exp:free',
+  'google/gemini-2.0-flash-thinking-exp:free',
+  'qwen/qwen-2-vl-7b-instruct:free'
 ]
 
 export function getAIConfig(): AIConfig {
   const isPublicMode = AI_MODE === 'public'
 
+  // Parse comma-separated models for fallback support
+  const models = AI_MODEL.split(',').map(m => m.trim()).filter(Boolean)
+  const primaryModel = models[0] || 'amazon/nova-2-lite-v1:free'
+
   return {
     mode: isPublicMode ? 'public' : 'user',
     apiKey: API_KEY || '',
-    model: AI_MODEL,
+    model: primaryModel,
+    models: models, // Array of models for fallback
     freeModelsOnly: isPublicMode
   }
 }
@@ -34,5 +48,14 @@ export function validateModel(model: string, config: AIConfig): boolean {
 }
 
 export function getDefaultModel(config: AIConfig): string {
-  return config.freeModelsOnly ? 'x-ai/grok-4.1-fast:free' : config.model
+  return config.freeModelsOnly ? 'amazon/nova-2-lite-v1:free' : config.model
+}
+
+export function getModelDisplayName(model: string): string {
+  const displayNames: Record<string, string> = {
+    'amazon/nova-2-lite-v1:free': 'Nova 2 Lite',
+    'google/gemini-2.0-flash-exp:free': 'Gemini 2.0 Flash',
+    'meta-llama/llama-3.3-70b-instruct:free': 'Llama 3.3 70B',
+  }
+  return displayNames[model] || model.split('/')[1]?.split(':')[0] || model
 }

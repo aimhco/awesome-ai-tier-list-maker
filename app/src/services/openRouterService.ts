@@ -1,7 +1,15 @@
-import { getAIConfig } from './aiConfig'
-import type { CaptionOptions, ImageData } from '../types/ai'
+import { getAIConfig, VISION_MODELS } from './aiConfig'
+import type { ImageData } from '../types/ai'
+import { safeJsonParse } from '../utils/jsonParser'
 
 const API_URL = 'https://openrouter.ai/api/v1/chat/completions'
+
+// Track the last successful model
+let lastSuccessfulModel: string | null = null
+
+export function getActiveModel(): string | null {
+  return lastSuccessfulModel
+}
 
 interface Message {
   role: 'system' | 'user' | 'assistant'
@@ -12,6 +20,7 @@ interface RequestOptions {
   temperature?: number
   maxTokens?: number
   responseFormat?: 'text' | 'json_object'
+  useVisionModels?: boolean
 }
 
 export async function makeRequest(
@@ -24,74 +33,104 @@ export async function makeRequest(
     throw new Error('OpenRouter API key not configured')
   }
 
-  const response = await fetch(API_URL, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${config.apiKey}`,
-      'HTTP-Referer': window.location.origin,
-      'X-Title': 'Tier List Maker',
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      model: config.model,
-      messages,
-      temperature: options?.temperature ?? 0.7,
-      max_tokens: options?.maxTokens ?? 1000,
-      ...(options?.responseFormat === 'json_object' && {
-        response_format: { type: 'json_object' }
-      })
-    })
-  })
+  // Get models to try (with fallback support)
+  // Use vision models for image tasks
+  const modelsToTry = options?.useVisionModels
+    ? VISION_MODELS
+    : (config.models && config.models.length > 0 ? config.models : [config.model])
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}))
-    throw new Error(error.error?.message || `API request failed: ${response.status}`)
+  let lastError: Error | null = null
+
+  // Try each model in sequence
+  for (let i = 0; i < modelsToTry.length; i++) {
+    const model = modelsToTry[i]
+
+    try {
+      const response = await fetch(API_URL, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${config.apiKey}`,
+          'HTTP-Referer': window.location.origin,
+          'X-Title': 'Tier List Maker',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: model,
+          messages,
+          temperature: options?.temperature ?? 0.7,
+          max_tokens: options?.maxTokens ?? 1000,
+          ...(options?.responseFormat === 'json_object' && {
+            response_format: { type: 'json_object' }
+          })
+        })
+      })
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}))
+        const errorMessage = error.error?.message || `API request failed: ${response.status}`
+
+        // If this is a model availability error and we have more models to try, continue
+        if ((errorMessage.includes('No endpoints found') || response.status === 404) && i < modelsToTry.length - 1) {
+          console.warn(`Model ${model} not available, trying next model...`)
+          lastError = new Error(errorMessage)
+          continue
+        }
+
+        throw new Error(errorMessage)
+      }
+
+      const data = await response.json()
+      const content = data.choices[0]?.message?.content || ''
+
+      // Track the successful model
+      lastSuccessfulModel = model
+
+      // Log which model was successful if we tried fallbacks
+      if (i > 0) {
+        console.log(`Successfully used fallback model: ${model}`)
+      }
+
+      return content
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error('Unknown error')
+
+      // If we have more models to try, continue
+      if (i < modelsToTry.length - 1) {
+        console.warn(`Model ${model} failed, trying next model...`)
+        continue
+      }
+
+      // This was the last model, throw the error
+      throw lastError
+    }
   }
 
-  const data = await response.json()
-  return data.choices[0]?.message?.content || ''
+  // If we somehow get here, throw the last error
+  throw lastError || new Error('All models failed')
 }
 
 /**
- * Caption an image using vision model
- */
-export async function captionImage(
-  imageData: ImageData,
-  options?: CaptionOptions
-): Promise<string> {
-  const { base64, mimeType } = imageData
-  const { isScreenshot = false, maxWords = 4 } = options || {}
-
-  const prompt = isScreenshot
-    ? `This is a screenshot. Identify the specific application, website, or content shown. Be very specific (e.g., "VS Code Editor", "GitHub Repository Page"). Respond in ${maxWords} words or less.`
-    : `Describe this image in ${maxWords} words or less for a tier list item. Be specific and concise about the main subject.`
-
-  const messages: Message[] = [
-    {
-      role: 'user',
-      content: [
-        { type: 'text', text: prompt },
-        {
-          type: 'image_url',
-          image_url: {
-            url: `data:${mimeType};base64,${base64}`
-          }
-        }
-      ]
-    }
-  ]
-
-  const result = await makeRequest(messages, { temperature: 0.5 })
-  return result.trim().replace(/^["']|["']$/g, '')
-}
-
-/**
- * Extract text from image (OCR)
+ * Extract text from image (OCR) using AI vision model
+ * Note: This is a fallback - prefer using Tesseract.js for local OCR
  */
 export async function extractTextFromImage(imageData: ImageData): Promise<string[]> {
   const { base64, mimeType } = imageData
 
-  const prompt = `Extract ALL text from this image. Return as a JSON array of strings, one per line of text found. Example: ["Item 1", "Item 2", "Item 3"]. Return ONLY the JSON array, no markdown or explanation.`
+  const prompt = `You are an OCR text extraction assistant. Look at this image carefully and extract ALL readable text content.
+
+This image likely contains names, labels, or list items that need to be extracted for a tier list application.
+
+Instructions:
+1. Read every piece of text visible in the image
+2. Focus on extracting individual names, titles, or items
+3. If there are multiple text elements, extract each one separately
+4. Preserve the exact spelling of words you see
+5. Do NOT make up or guess words - only extract what is clearly visible
+
+Return your response as a JSON object with a "texts" array containing each text item found:
+{"texts": ["Name 1", "Name 2", "Name 3"]}
+
+If you cannot read any text, return: {"texts": []}`
 
   const messages: Message[] = [
     {
@@ -109,12 +148,13 @@ export async function extractTextFromImage(imageData: ImageData): Promise<string
   ]
 
   const result = await makeRequest(messages, {
-    temperature: 0.3,
-    responseFormat: 'json_object'
+    temperature: 0.1,
+    responseFormat: 'json_object',
+    useVisionModels: true
   })
 
   try {
-    const parsed = JSON.parse(result)
+    const parsed = safeJsonParse(result)
     return Array.isArray(parsed) ? parsed : parsed.texts || []
   } catch {
     return []
