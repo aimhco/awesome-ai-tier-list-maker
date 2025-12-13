@@ -825,7 +825,6 @@ function App() {
 
   const handleUploadImages = () => {
     setIsUploadImagesOpen(true)
-    hasShownModelErrorRef.current = false
   }
 
   const closeUploadImagesModal = () => {
@@ -872,10 +871,18 @@ function App() {
         )
 
         // Extract text from image (OCR) if enabled
+        // Use ORIGINAL file for OCR, not the resized thumbnail
         if (extractTextOCR && aiEnabled && ai.available) {
           try {
             const mimeType = img.file.type
-            const base64Data = base64.split(',')[1]
+            // Read original file as base64 for OCR (not the 96x96 thumbnail)
+            const originalBase64 = await new Promise<string>((resolve, reject) => {
+              const reader = new FileReader()
+              reader.onload = () => resolve(reader.result as string)
+              reader.onerror = reject
+              reader.readAsDataURL(img.file)
+            })
+            const base64Data = originalBase64.split(',')[1]
 
             const extractedTexts = await extractTextFromImage({
               base64: base64Data,
@@ -946,6 +953,27 @@ function App() {
 
   const removeUploadingImage = (id: string) => {
     setUploadingImages(prev => prev.filter(img => img.id !== id))
+  }
+
+  const updateExtractedText = (imageId: string, textIndex: number, newText: string) => {
+    setUploadingImages(prev =>
+      prev.map(img => {
+        if (img.id !== imageId || !img.extractedText) return img
+        const updated = [...img.extractedText]
+        updated[textIndex] = newText
+        return { ...img, extractedText: updated }
+      })
+    )
+  }
+
+  const removeExtractedText = (imageId: string, textIndex: number) => {
+    setUploadingImages(prev =>
+      prev.map(img => {
+        if (img.id !== imageId || !img.extractedText) return img
+        const updated = img.extractedText.filter((_, idx) => idx !== textIndex)
+        return { ...img, extractedText: updated }
+      })
+    )
   }
 
   const handleSaveUploadedImages = () => {
@@ -2666,9 +2694,22 @@ function App() {
                             </div>
                             <div className="upload-image-preview__extracted-text-items">
                               {img.extractedText.map((text, idx) => (
-                                <span key={idx} className="upload-image-preview__extracted-text-item">
-                                  {text}
-                                </span>
+                                <div key={idx} className="upload-image-preview__extracted-text-item">
+                                  <input
+                                    type="text"
+                                    value={text}
+                                    onChange={(e) => updateExtractedText(img.id, idx, e.target.value)}
+                                    className="upload-image-preview__extracted-text-input"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => removeExtractedText(img.id, idx)}
+                                    className="upload-image-preview__extracted-text-remove"
+                                    title="Remove"
+                                  >
+                                    ×
+                                  </button>
+                                </div>
                               ))}
                             </div>
                           </div>
@@ -2691,7 +2732,7 @@ function App() {
                     checked={extractTextOCR}
                     onChange={(e) => setExtractTextOCR(e.target.checked)}
                   />
-                  <span>Extract text from images (OCR)</span>
+                  <span>Extract text from images ✨</span>
                 </label>
               </div>
               {uploadingImages.length >= 20 && (

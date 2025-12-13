@@ -10,13 +10,11 @@ const FREE_MODELS = [
   'meta-llama/llama-3.3-70b-instruct:free'
 ]
 
-// Free models that support vision/image analysis
-// Note: Most free models have limited or no vision support
-// Gemini 2.0 Flash is the primary free model with vision capability
+// Vision models for OCR/image analysis
+// Free models - testing with full resolution images
 export const VISION_MODELS = [
   'google/gemini-2.0-flash-exp:free',
-  'google/gemini-2.0-flash-thinking-exp:free',
-  'qwen/qwen-2-vl-7b-instruct:free'
+  'amazon/nova-2-lite-v1:free'
 ]
 
 export function getAIConfig(): AIConfig {

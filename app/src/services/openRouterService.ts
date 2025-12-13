@@ -111,26 +111,18 @@ export async function makeRequest(
 
 /**
  * Extract text from image (OCR) using AI vision model
- * Note: This is a fallback - prefer using Tesseract.js for local OCR
  */
 export async function extractTextFromImage(imageData: ImageData): Promise<string[]> {
   const { base64, mimeType } = imageData
 
-  const prompt = `You are an OCR text extraction assistant. Look at this image carefully and extract ALL readable text content.
+  const prompt = `Look at this image and list all the text/words you can see.
 
-This image likely contains names, labels, or list items that need to be extracted for a tier list application.
+The image contains names, labels, or words that I need to extract. Please read each word carefully and return them in a JSON format.
 
-Instructions:
-1. Read every piece of text visible in the image
-2. Focus on extracting individual names, titles, or items
-3. If there are multiple text elements, extract each one separately
-4. Preserve the exact spelling of words you see
-5. Do NOT make up or guess words - only extract what is clearly visible
+Return a JSON object like this:
+{"texts": ["word1", "word2", "word3"]}
 
-Return your response as a JSON object with a "texts" array containing each text item found:
-{"texts": ["Name 1", "Name 2", "Name 3"]}
-
-If you cannot read any text, return: {"texts": []}`
+List every readable word or name you see in the image.`
 
   const messages: Message[] = [
     {
@@ -148,8 +140,7 @@ If you cannot read any text, return: {"texts": []}`
   ]
 
   const result = await makeRequest(messages, {
-    temperature: 0.1,
-    responseFormat: 'json_object',
+    temperature: 0.2,
     useVisionModels: true
   })
 

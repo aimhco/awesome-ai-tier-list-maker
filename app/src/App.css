@@ -981,13 +981,47 @@
 }
 
 .upload-image-preview__extracted-text-item {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.upload-image-preview__extracted-text-input {
+  flex: 1;
   font-size: 0.7rem;
   padding: 0.3rem 0.5rem;
   background: var(--color-body-bg);
   border-radius: 6px;
   border: 1px solid var(--color-card-border);
   color: var(--color-text-primary);
-  word-break: break-word;
+  min-width: 0;
+}
+
+.upload-image-preview__extracted-text-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+.upload-image-preview__extracted-text-remove {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+
+.upload-image-preview__extracted-text-remove:hover {
+  background: rgba(239, 68, 68, 0.2);
 }
 
 .upload-limit-warning {
