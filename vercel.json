@@ -1,5 +1,13 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "trailingSlash": false,
+  "redirects": [
+    {
+      "source": "/",
+      "destination": "/tierlist",
+      "permanent": true
+    }
+  ],
   "rewrites": [
     {
       "source": "/tierlist/assets/:path*",
