@@ -24,7 +24,7 @@
     <a href="#features"><strong>Explore the features »</strong></a>
     <br />
     <br />
-    <a href="https://tierlist.aimh.co">View Demo</a>
+    <a href="https://www.aimh.co/tierlist">View Demo</a>
     ·
     <a href="https://github.com/aimhco/awesome-ai-tier-list-maker/issues/new?labels=bug&template=bug-report---.md">Report Bug</a>
     ·
@@ -451,6 +451,8 @@ Distributed under the MIT License. See `LICENSE` for more information.
 ## Contact
 
 Denny - denny@aimh.co
+
+Website: https://www.aimh.co
 
 Project Link: [https://github.com/aimhco/awesome-ai-tier-list-maker](https://github.com/aimhco/awesome-ai-tier-list-maker)
 
