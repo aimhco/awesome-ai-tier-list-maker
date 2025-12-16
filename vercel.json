@@ -1,13 +1,13 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "routes": [
+  "rewrites": [
     {
-      "src": "/tierlist",
-      "dest": "/index.html"
+      "source": "/tierlist",
+      "destination": "/index.html"
     },
     {
-      "src": "/tierlist/(.*)",
-      "dest": "/index.html"
+      "source": "/tierlist/:path*",
+      "destination": "/index.html"
     }
   ],
   "headers": [
