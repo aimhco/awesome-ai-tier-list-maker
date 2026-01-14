@@ -53,7 +53,7 @@ export function ItemBank({
   presentationMode = false,
   aiEnabled = false,
   showDistribution = false,
-  hasPlacedItems = false,
+  hasPlacedItems: _hasPlacedItems = false,
 }: ItemBankProps) {
   const { isOver, setNodeRef } = useDroppable({ id: 'bank' })
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)

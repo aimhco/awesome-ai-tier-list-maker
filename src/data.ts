@@ -13,6 +13,7 @@ export interface Item {
   image?: string;
   color?: string;
   badge?: string;
+  textColor?: string;
 }
 
 export const tiers: Tier[] = [

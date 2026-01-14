@@ -935,22 +935,6 @@ function App() {
     )
   }
 
-  const updateImageBadge = (id: string, badge: string) => {
-    setUploadingImages(prev =>
-      prev.map(img =>
-        img.id === id
-          ? { ...img, badge: badge.toUpperCase().slice(0, 5) }
-          : img
-      )
-    )
-  }
-
-  const updateImageColor = (id: string, color: string) => {
-    setUploadingImages(prev =>
-      prev.map(img => (img.id === id ? { ...img, color } : img))
-    )
-  }
-
   const removeUploadingImage = (id: string) => {
     setUploadingImages(prev => prev.filter(img => img.id !== id))
   }
@@ -1075,10 +1059,6 @@ function App() {
 
   const handleToggleDistribution = () => {
     setShowDistribution((prev) => !prev)
-  }
-
-  const handleSaveList = () => {
-    // Placeholder handler for upcoming save functionality
   }
 
   const [isAddItemsOpen, setIsAddItemsOpen] = useState(false)
@@ -1401,10 +1381,11 @@ function App() {
     setCommandLoading(true)
     setParsedCommand(null)
 
-    // Build context for command parsing
+    // Build context for command parsing (include ALL items, not just custom)
+    const allItems = Object.values(itemsById)
     const context = {
       currentTiers: themedTiers.map(t => ({ label: t.label, id: t.id })),
-      currentItems: customItems.map(i => ({ label: i.label, id: i.id }))
+      currentItems: allItems.map(i => ({ label: i.label, id: i.id }))
     }
 
     const result = await ai.executeTask(async () => {
@@ -1448,9 +1429,12 @@ function App() {
           throw new Error(`Tier "${targetTierLabel}" not found`)
         }
 
+        // Get all items (base + custom) for searching
+        const allItems = Object.values(itemsById)
+
         if (params.allItems) {
           // Move all items to target tier
-          const allItemIds = customItems.map(i => i.id)
+          const allItemIds = allItems.map(i => i.id)
           setPlacements(prev => ({
             ...prev,
             [targetTier.id]: [...prev[targetTier.id], ...allItemIds],
@@ -1459,8 +1443,8 @@ function App() {
         } else if (params.itemNames && params.itemNames.length > 0) {
           // Move specific items
           const itemsToMove = params.itemNames
-            .map(name => customItems.find(i => i.label.toLowerCase().includes(name.toLowerCase())))
-            .filter((item): item is typeof customItems[0] => item !== undefined)
+            .map(name => allItems.find(i => i.label.toLowerCase().includes(name.toLowerCase())))
+            .filter((item): item is typeof allItems[0] => item !== undefined)
 
           if (itemsToMove.length === 0) {
             throw new Error('No matching items found')
@@ -2159,7 +2143,7 @@ function App() {
                 </button>
                 {aiEnabled && getActiveModel() && (
                   <div className="icon-button__dropdown-info">
-                    Current AI Model: {getModelDisplayName(getActiveModel()!)}
+                    Last Used Model: {getModelDisplayName(getActiveModel()!)}
                   </div>
                 )}
                 {aiEnabled && (

@@ -60,14 +60,6 @@ export function AITierPlacementModal({
     onApplySelected(selected)
   }
 
-  const getTierLabel = (tierId: string) => {
-    return tiers.find(t => t.id === tierId)?.label || tierId
-  }
-
-  const getTierColor = (tierId: string) => {
-    return tiers.find(t => t.id === tierId)?.color || '#666'
-  }
-
   return (
     <div className="settings-modal__backdrop" data-hide-in-screenshot="true">
       <div className="settings-modal ai-placement-modal">

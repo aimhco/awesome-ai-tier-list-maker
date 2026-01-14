@@ -83,9 +83,11 @@
     <li>
       <a href="#ai-models">AI Models</a>
       <ul>
-        <li><a href="#default-free-models">Default Free Models</a></li>
-        <li><a href="#using-paid-models">Using Paid Models</a></li>
+        <li><a href="#default-models-low-cost">Default Models (Low-Cost)</a></li>
+        <li><a href="#free-model-fallbacks">Free Model Fallbacks</a></li>
         <li><a href="#vision-models-for-ocr">Vision Models for OCR</a></li>
+        <li><a href="#cost-control">Cost Control</a></li>
+        <li><a href="#using-different-models">Using Different Models</a></li>
       </ul>
     </li>
     <li><a href="#deployment">Deployment</a></li>
@@ -150,7 +152,7 @@ This project is built with modern web technologies:
 
 ### AI-Powered Features
 
-All AI features are powered by free models through [OpenRouter](https://openrouter.ai/), making them completely free to use.
+All AI features are powered by [OpenRouter](https://openrouter.ai/), using low-cost models (~$0.001 per request) with free fallbacks.
 
 | Feature | Description |
 |---------|-------------|
@@ -288,7 +290,7 @@ Follow these steps to set up the project locally.
 |----------|-------------|---------|
 | `VITE_OPENROUTER_API_KEY` | Your OpenRouter API key (required) | - |
 | `VITE_AI_MODE` | `user` for local dev, `public` for production | `user` |
-| `VITE_AI_MODEL` | Comma-separated list of models | Free models |
+| `VITE_AI_MODEL` | Comma-separated list of models (with fallbacks) | `deepseek/deepseek-v3.2` |
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -340,49 +342,70 @@ The Natural Commands feature understands commands like:
 
 This application uses [OpenRouter](https://openrouter.ai/) as an AI gateway, which provides access to multiple AI models from different providers.
 
-### Default Free Models
+### Default Models (Low-Cost)
 
-The app uses **100% free models** by default:
+The app uses **low-cost paid models** by default for reliability:
 
-| Model | Provider | Purpose |
-|-------|----------|---------|
-| `amazon/nova-2-lite-v1:free` | Amazon | Primary model |
-| `google/gemini-2.0-flash-exp:free` | Google | Fallback model |
-| `meta-llama/llama-3.3-70b-instruct:free` | Meta | Fallback model |
+| Model | Provider | Cost (per 1M tokens) | Purpose |
+|-------|----------|---------------------|---------|
+| `deepseek/deepseek-v3.2` | DeepSeek | $0.25 in / $0.38 out | Primary text model |
+| `google/gemini-3-flash-preview` | Google | $0.50 in / $3.00 out | Vision/OCR model |
 
-The app automatically falls back to the next model if one is unavailable.
+**Why paid models?** Free models on OpenRouter are unreliable - they frequently become unavailable without notice. With DeepSeek's pricing, $10 covers ~10,000+ tier list sessions.
+
+### Free Model Fallbacks
+
+The app automatically falls back to free models if paid models fail:
+
+| Model | Provider | Context | Vision |
+|-------|----------|---------|--------|
+| `xiaomi/mimo-v2-flash:free` | Xiaomi | 262K | No |
+| `mistralai/devstral-2512:free` | Mistral | 262K | No |
+| `nvidia/nemotron-nano-12b-v2-vl:free` | Nvidia | 128K | Yes |
+| `allenai/molmo-2-8b:free` | AllenAI | 36K | Yes |
+
+> **Note:** Free models may be discontinued at any time. See [OpenRouter's free tier policy](https://openrouter.ai/announcements/updates-to-our-free-tier-sustaining-accessible-ai-for-everyone).
 
 ### Vision Models for OCR
 
 For image text extraction (OCR), the app uses vision-capable models:
 
-| Model | Provider |
-|-------|----------|
-| `google/gemini-2.0-flash-exp:free` | Google |
-| `amazon/nova-2-lite-v1:free` | Amazon |
+| Model | Provider | Cost |
+|-------|----------|------|
+| `google/gemini-3-flash-preview` | Google | $0.50-3.00/M |
+| `nvidia/nemotron-nano-12b-v2-vl:free` | Nvidia | Free |
+| `allenai/molmo-2-8b:free` | AllenAI | Free |
 
-### Using Paid Models
+### Cost Control
 
-For local development, you can use any model available on OpenRouter, including paid models:
+OpenRouter uses a **prepaid credit system** - no automatic billing:
+- Add credits manually at [OpenRouter Credits](https://openrouter.ai/settings/credits)
+- When credits run out, API calls fail (no surprise charges)
+- $10 covers thousands of tier list sessions
 
-1. **Edit your `.env.local` file:**
-   ```bash
-   VITE_AI_MODE=user
-   VITE_AI_MODEL=openai/gpt-4o,anthropic/claude-3.5-sonnet
-   ```
+### Using Different Models
 
-2. **Popular paid models:**
-   
-   | Model | Provider | Best For |
-   |-------|----------|----------|
-   | `openai/gpt-4o` | OpenAI | Best overall quality |
-   | `anthropic/claude-3.5-sonnet` | Anthropic | Complex reasoning |
-   | `openai/gpt-4o-mini` | OpenAI | Good balance of cost/quality |
-   | `google/gemini-2.0-flash` | Google | Fast responses |
+You can customize which models to use in your `.env.local` file:
 
-3. **Check pricing:** [OpenRouter Models](https://openrouter.ai/models)
+```bash
+# Use specific models (comma-separated for fallback order)
+VITE_AI_MODEL=deepseek/deepseek-v3.2,xiaomi/mimo-v2-flash:free
 
-> **Important:** When `VITE_AI_MODE=public` (production), only free models are allowed to prevent unexpected costs.
+# Or use premium models for best quality
+VITE_AI_MODEL=openai/gpt-4o,anthropic/claude-sonnet-4
+```
+
+**Popular model options:**
+
+| Model | Provider | Cost | Best For |
+|-------|----------|------|----------|
+| `deepseek/deepseek-v3.2` | DeepSeek | $0.25-0.38/M | Best value |
+| `google/gemini-3-flash-preview` | Google | $0.50-3.00/M | Vision + speed |
+| `openai/gpt-4o-mini` | OpenAI | $0.15-0.60/M | Good balance |
+| `openai/gpt-4o` | OpenAI | $2.50-10.00/M | Best quality |
+| `anthropic/claude-sonnet-4` | Anthropic | $3.00-15.00/M | Complex reasoning |
+
+Check current pricing at [OpenRouter Models](https://openrouter.ai/models).
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 

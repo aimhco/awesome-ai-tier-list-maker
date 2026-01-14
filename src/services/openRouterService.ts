@@ -11,6 +11,12 @@ export function getActiveModel(): string | null {
   return lastSuccessfulModel
 }
 
+// Get the configured primary model (not last used)
+export function getConfiguredModel(): string {
+  const config = getAIConfig()
+  return config.models?.[0] || config.model
+}
+
 interface Message {
   role: 'system' | 'user' | 'assistant'
   content: string | Array<{ type: string; text?: string; image_url?: { url: string } }>
