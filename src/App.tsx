@@ -1463,7 +1463,7 @@ function App() {
             })
 
             // Add to target tier
-            newPlacements[targetTier.id] = [...newPlacements[targetTier.id], ...itemIds]
+            newPlacements[targetTier.id] = [...(newPlacements[targetTier.id] || []), ...itemIds]
 
             return newPlacements
           })
@@ -1492,6 +1492,12 @@ function App() {
           }
           return [...prev, newTier]
         })
+
+        // Initialize placements for the new tier
+        setPlacements(prev => ({
+          ...prev,
+          [newTier.id]: []
+        }))
         break
       }
 
