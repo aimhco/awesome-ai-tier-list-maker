@@ -24,7 +24,7 @@
     <a href="#features"><strong>Explore the features »</strong></a>
     <br />
     <br />
-    <a href="https://www.aimh.co/tierlist">View Demo</a>
+    <a href="https://www.tierlist.xyz">View Demo</a>
     ·
     <a href="https://github.com/aimhco/awesome-ai-tier-list-maker/issues/new?labels=bug&template=bug-report---.md">Report Bug</a>
     ·

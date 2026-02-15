@@ -1,28 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "trailingSlash": false,
-  "redirects": [
-    {
-      "source": "/",
-      "destination": "/tierlist",
-      "permanent": true
-    }
-  ],
   "rewrites": [
     {
-      "source": "/tierlist/assets/:path*",
-      "destination": "/assets/:path*"
-    },
-    {
-      "source": "/tierlist/favicon.svg",
-      "destination": "/favicon.svg"
-    },
-    {
-      "source": "/tierlist",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/tierlist/:path*",
+      "source": "/(.*)",
       "destination": "/index.html"
     }
   ],
